@@ -6,6 +6,8 @@ import * as THREE from 'three'
 const PLAYER_HEIGHT = 1.65
 const PLAYER_PADDING = 1.8
 const PLAYER_RADIUS = 0.28
+const MOBILE_BREAKPOINT = 900
+const MOBILE_LOOK_SENSITIVITY = 0.0032
 const ROOM_ASSET_URL = new URL('../backrooms_another_level.glb', import.meta.url).href
 const SECOND_ROOM_ASSET_URL = new URL(
   '../rec_room_-_backrooms_level_you_cheated.glb',
@@ -20,7 +22,41 @@ const monsterTemplateCache = new Map()
 
 useGLTF.preload(ROOM_ASSET_URL)
 useGLTF.preload(MONSTER_ASSET_URL)
-useGLTF.preload(SECOND_MONSTER_ASSET_URL)
+
+function useIsMobileDevice() {
+  const [isMobile, setIsMobile] = useState(() => {
+    if (typeof window === 'undefined') {
+      return false
+    }
+
+    return (
+      window.matchMedia('(pointer: coarse)').matches ||
+      window.innerWidth <= MOBILE_BREAKPOINT
+    )
+  })
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return undefined
+    }
+
+    const mediaQuery = window.matchMedia('(pointer: coarse)')
+    const update = () => {
+      setIsMobile(mediaQuery.matches || window.innerWidth <= MOBILE_BREAKPOINT)
+    }
+
+    update()
+    mediaQuery.addEventListener('change', update)
+    window.addEventListener('resize', update)
+
+    return () => {
+      mediaQuery.removeEventListener('change', update)
+      window.removeEventListener('resize', update)
+    }
+  }, [])
+
+  return isMobile
+}
 
 function useBackroomsHum(active) {
   const cleanupRef = useRef(() => {})
@@ -247,6 +283,10 @@ function isWalkablePosition(navigation, x, z, radius = PLAYER_RADIUS) {
 
     return navigation.walkable[row * navigation.columns + column] === 1
   })
+}
+
+function clampInput(value) {
+  return THREE.MathUtils.clamp(value, -1, 1)
 }
 
 function pickRandomMonsterSpawn(navigation, playerSpawn, size, occupiedPositions = []) {
@@ -494,7 +534,16 @@ function DoorPortal({ position, color = '#70fff4' }) {
   )
 }
 
-function MonsterChaser({ active, assetUrl, roomData, playerPositionRef, onCatch, runId, initialSpawn }) {
+function MonsterChaser({
+  active,
+  assetUrl,
+  roomData,
+  playerPositionRef,
+  onCatch,
+  runId,
+  initialSpawn,
+  isMobile,
+}) {
   const gltf = useGLTF(assetUrl)
   const groupRef = useRef()
   const monsterPositionRef = useRef(
@@ -587,7 +636,15 @@ function MonsterChaser({ active, assetUrl, roomData, playerPositionRef, onCatch,
   return (
     <group ref={groupRef}>
       <Clone object={template} position={monsterScale.offset} scale={monsterScale.scale} />
-      <pointLight color="#7d173f" intensity={3.2} distance={10} decay={2} position={[0, 1.2, 0]} />
+      {!isMobile && (
+        <pointLight
+          color="#7d173f"
+          intensity={3.2}
+          distance={10}
+          decay={2}
+          position={[0, 1.2, 0]}
+        />
+      )}
     </group>
   )
 }
@@ -598,6 +655,8 @@ function PlayerController({
   playerPositionRef,
   runId,
   initialLookTarget,
+  isMobile,
+  mobileControlsRef,
 }) {
   const { camera } = useThree()
   const keys = useRef({})
@@ -606,13 +665,20 @@ function PlayerController({
   const nextPosition = useMemo(() => new THREE.Vector3(), [])
   const walkingRef = useRef(0)
   const lookTarget = useMemo(() => new THREE.Vector3(), [])
+  const yawRef = useRef(0)
+  const pitchRef = useRef(0)
 
   useEffect(() => {
     playerPositionRef.current.set(roomData.spawn.x, roomData.spawn.y, roomData.spawn.z)
     camera.position.copy(playerPositionRef.current)
     lookTarget.set(initialLookTarget.x, PLAYER_HEIGHT, initialLookTarget.z)
     camera.lookAt(lookTarget)
-  }, [camera, initialLookTarget.x, initialLookTarget.z, lookTarget, roomData, runId])
+    yawRef.current = camera.rotation.y
+    pitchRef.current = camera.rotation.x
+    if (isMobile) {
+      camera.rotation.order = 'YXZ'
+    }
+  }, [camera, initialLookTarget.x, initialLookTarget.z, isMobile, lookTarget, roomData, runId])
 
   useEffect(() => {
     const handleKeyDown = (event) => {
@@ -636,10 +702,36 @@ function PlayerController({
       return
     }
 
-    const inputX = (keys.current.KeyD ? 1 : 0) - (keys.current.KeyA ? 1 : 0)
-    const inputZ = (keys.current.KeyW ? 1 : 0) - (keys.current.KeyS ? 1 : 0)
-    const isRunning = keys.current.ShiftLeft || keys.current.ShiftRight
-    const speed = isRunning ? 4.8 : 3
+    const mobileControls = mobileControlsRef.current
+    const inputX = clampInput(
+      (keys.current.KeyD ? 1 : 0) -
+        (keys.current.KeyA ? 1 : 0) +
+        (isMobile ? mobileControls.moveX : 0),
+    )
+    const inputZ = clampInput(
+      (keys.current.KeyW ? 1 : 0) -
+        (keys.current.KeyS ? 1 : 0) +
+        (isMobile ? mobileControls.moveY : 0),
+    )
+    const isRunning =
+      keys.current.ShiftLeft ||
+      keys.current.ShiftRight ||
+      (isMobile && mobileControls.running)
+    const speed = isRunning ? (isMobile ? 3.9 : 4.8) : isMobile ? 2.45 : 3
+
+    if (isMobile) {
+      yawRef.current -= mobileControls.lookX * MOBILE_LOOK_SENSITIVITY
+      pitchRef.current = THREE.MathUtils.clamp(
+        pitchRef.current - mobileControls.lookY * MOBILE_LOOK_SENSITIVITY,
+        -1.12,
+        1.12,
+      )
+      mobileControls.lookX = 0
+      mobileControls.lookY = 0
+      camera.rotation.order = 'YXZ'
+      camera.rotation.y = yawRef.current
+      camera.rotation.x = pitchRef.current
+    }
 
     camera.getWorldDirection(forward)
     forward.y = 0
@@ -693,10 +785,10 @@ function PlayerController({
       PLAYER_HEIGHT + Math.sin(walkingRef.current) * Math.min(0.05, movementAmount * 0.22)
   })
 
-  return <PointerLockControls selector="#game-shell" />
+  return isMobile ? null : <PointerLockControls selector="#game-shell" />
 }
 
-function BackroomsScene({ active, onCaught, onTraverse, roomKey, runId }) {
+function BackroomsScene({ active, onCaught, onTraverse, roomKey, runId, isMobile, mobileControlsRef }) {
   const roomPreset =
     roomKey === 'main'
       ? {
@@ -808,27 +900,31 @@ function BackroomsScene({ active, onCaught, onTraverse, roomKey, runId }) {
         args={['#6f6928', THREE.MathUtils.clamp(1 / Math.max(roomData.visualRadius * 3, 40), 0.003, 0.018)]}
       />
       <ambientLight intensity={0.4} color="#9c9141" />
+      {isMobile ? null : (
+        <>
+          <pointLight
+            position={[-roomData.size.x * 0.22, lightHeight * 0.96, roomData.size.z * 0.18]}
+            intensity={4.2}
+            distance={sideLightDistance}
+            decay={2}
+            color="#f4eba8"
+          />
+          <pointLight
+            position={[roomData.size.x * 0.22, lightHeight * 0.96, -roomData.size.z * 0.18]}
+            intensity={4.2}
+            distance={sideLightDistance}
+            decay={2}
+            color="#efe18e"
+          />
+        </>
+      )}
 
       <pointLight
         position={[0, lightHeight, 0]}
-        intensity={7}
+        intensity={isMobile ? 5.4 : 7}
         distance={mainLightDistance}
         decay={1.8}
         color="#fff1a8"
-      />
-      <pointLight
-        position={[-roomData.size.x * 0.22, lightHeight * 0.96, roomData.size.z * 0.18]}
-        intensity={4.2}
-        distance={sideLightDistance}
-        decay={2}
-        color="#f4eba8"
-      />
-      <pointLight
-        position={[roomData.size.x * 0.22, lightHeight * 0.96, -roomData.size.z * 0.18]}
-        intensity={4.2}
-        distance={sideLightDistance}
-        decay={2}
-        color="#efe18e"
       />
 
       <Suspense fallback={null}>
@@ -845,19 +941,23 @@ function BackroomsScene({ active, onCaught, onTraverse, roomKey, runId }) {
               onCatch={onCaught}
               runId={runId}
               initialSpawn={monsterSpawns.firstSpawn}
+              isMobile={isMobile}
             />
           </Suspense>
-          <Suspense fallback={null}>
-            <MonsterChaser
-              active={active}
-              assetUrl={SECOND_MONSTER_ASSET_URL}
-              roomData={roomData}
-              playerPositionRef={playerPositionRef}
-              onCatch={onCaught}
-              runId={runId}
-              initialSpawn={monsterSpawns.secondSpawn}
-            />
-          </Suspense>
+          {!isMobile && (
+            <Suspense fallback={null}>
+              <MonsterChaser
+                active={active}
+                assetUrl={SECOND_MONSTER_ASSET_URL}
+                roomData={roomData}
+                playerPositionRef={playerPositionRef}
+                onCatch={onCaught}
+                runId={runId}
+                initialSpawn={monsterSpawns.secondSpawn}
+                isMobile={isMobile}
+              />
+            </Suspense>
+          )}
         </>
       )}
       <Suspense fallback={null}>
@@ -873,8 +973,154 @@ function BackroomsScene({ active, onCaught, onTraverse, roomKey, runId }) {
         playerPositionRef={playerPositionRef}
         runId={runId}
         initialLookTarget={initialLookTarget}
+        isMobile={isMobile}
+        mobileControlsRef={mobileControlsRef}
       />
     </>
+  )
+}
+
+function MobileControls({ active, mobileControlsRef }) {
+  const [moveThumb, setMoveThumb] = useState({ x: 0, y: 0 })
+  const [lookActive, setLookActive] = useState(false)
+  const movePointerIdRef = useRef(null)
+  const lookPointerIdRef = useRef(null)
+  const lookLastRef = useRef({ x: 0, y: 0 })
+  const moveBoundsRef = useRef(null)
+  const maxRadius = 42
+
+  useEffect(() => {
+    if (active) {
+      return undefined
+    }
+
+    mobileControlsRef.current.moveX = 0
+    mobileControlsRef.current.moveY = 0
+    mobileControlsRef.current.lookX = 0
+    mobileControlsRef.current.lookY = 0
+    mobileControlsRef.current.running = false
+    setMoveThumb({ x: 0, y: 0 })
+    setLookActive(false)
+    return undefined
+  }, [active, mobileControlsRef])
+
+  const resetMovement = () => {
+    movePointerIdRef.current = null
+    mobileControlsRef.current.moveX = 0
+    mobileControlsRef.current.moveY = 0
+    setMoveThumb({ x: 0, y: 0 })
+  }
+
+  const updateMovement = (event) => {
+    if (!moveBoundsRef.current) {
+      return
+    }
+
+    const centerX = moveBoundsRef.current.left + moveBoundsRef.current.width / 2
+    const centerY = moveBoundsRef.current.top + moveBoundsRef.current.height / 2
+    const rawX = event.clientX - centerX
+    const rawY = event.clientY - centerY
+    const distance = Math.hypot(rawX, rawY)
+    const scale = distance > maxRadius ? maxRadius / distance : 1
+    const x = rawX * scale
+    const y = rawY * scale
+
+    setMoveThumb({ x, y })
+    mobileControlsRef.current.moveX = x / maxRadius
+    mobileControlsRef.current.moveY = -y / maxRadius
+  }
+
+  return (
+    <div className={`mobile-ui ${active ? '' : 'mobile-ui-hidden'}`}>
+      <div
+        className="mobile-pad mobile-pad-left"
+        onPointerDown={(event) => {
+          movePointerIdRef.current = event.pointerId
+          moveBoundsRef.current = event.currentTarget.getBoundingClientRect()
+          event.currentTarget.setPointerCapture(event.pointerId)
+          updateMovement(event)
+        }}
+        onPointerMove={(event) => {
+          if (movePointerIdRef.current !== event.pointerId) {
+            return
+          }
+
+          updateMovement(event)
+        }}
+        onPointerUp={(event) => {
+          if (movePointerIdRef.current !== event.pointerId) {
+            return
+          }
+
+          event.currentTarget.releasePointerCapture(event.pointerId)
+          resetMovement()
+        }}
+        onPointerCancel={resetMovement}
+      >
+        <div className="mobile-pad-ring">
+          <div
+            className="mobile-pad-thumb"
+            style={{ transform: `translate(${moveThumb.x}px, ${moveThumb.y}px)` }}
+          />
+        </div>
+      </div>
+
+      <div className="mobile-actions">
+        <button
+          className="mobile-run-button"
+          type="button"
+          onPointerDown={(event) => {
+            event.preventDefault()
+            mobileControlsRef.current.running = true
+          }}
+          onPointerUp={() => {
+            mobileControlsRef.current.running = false
+          }}
+          onPointerCancel={() => {
+            mobileControlsRef.current.running = false
+          }}
+          onPointerLeave={() => {
+            mobileControlsRef.current.running = false
+          }}
+        >
+          Correr
+        </button>
+      </div>
+
+      <div
+        className={`mobile-look-zone ${lookActive ? 'mobile-look-zone-active' : ''}`}
+        onPointerDown={(event) => {
+          lookPointerIdRef.current = event.pointerId
+          lookLastRef.current = { x: event.clientX, y: event.clientY }
+          setLookActive(true)
+          event.currentTarget.setPointerCapture(event.pointerId)
+        }}
+        onPointerMove={(event) => {
+          if (lookPointerIdRef.current !== event.pointerId) {
+            return
+          }
+
+          mobileControlsRef.current.lookX += event.clientX - lookLastRef.current.x
+          mobileControlsRef.current.lookY += event.clientY - lookLastRef.current.y
+          lookLastRef.current = { x: event.clientX, y: event.clientY }
+        }}
+        onPointerUp={(event) => {
+          if (lookPointerIdRef.current !== event.pointerId) {
+            return
+          }
+
+          event.currentTarget.releasePointerCapture(event.pointerId)
+          lookPointerIdRef.current = null
+          setLookActive(false)
+        }}
+        onPointerCancel={() => {
+          lookPointerIdRef.current = null
+          setLookActive(false)
+        }}
+      >
+        <span className="mobile-look-label">Desliza para mirar</span>
+      </div>
+    </div>
   )
 }
 
@@ -882,34 +1128,50 @@ export default function App() {
   const [phase, setPhase] = useState('intro')
   const [runId, setRunId] = useState(0)
   const [roomKey, setRoomKey] = useState('main')
+  const isMobile = useIsMobileDevice()
+  const mobileControlsRef = useRef({
+    moveX: 0,
+    moveY: 0,
+    lookX: 0,
+    lookY: 0,
+    running: false,
+  })
   const active = phase === 'playing'
 
   useBackroomsHum(active)
 
   useEffect(() => {
-    if (!active) {
+    if (!active || isMobile) {
       return undefined
     }
 
     const timer = window.setTimeout(() => {
       useGLTF.preload(SECOND_ROOM_ASSET_URL)
+      useGLTF.preload(SECOND_MONSTER_ASSET_URL)
     }, 2500)
 
     return () => window.clearTimeout(timer)
-  }, [active])
+  }, [active, isMobile])
 
   return (
     <div id="game-shell" className={`app-shell phase-${phase}`}>
       <Canvas
-        dpr={[1, 1.1]}
-        performance={{ min: 0.75 }}
-        gl={{ antialias: false, powerPreference: 'high-performance' }}
+        dpr={isMobile ? [0.65, 0.85] : [1, 1.1]}
+        performance={{ min: isMobile ? 0.5 : 0.75 }}
+        gl={{
+          antialias: false,
+          powerPreference: 'high-performance',
+          alpha: false,
+          stencil: false,
+        }}
         camera={{ fov: 72, near: 0.1, far: 100, position: [0, PLAYER_HEIGHT, 5.5] }}
       >
         <BackroomsScene
           active={active}
           roomKey={roomKey}
           runId={runId}
+          isMobile={isMobile}
+          mobileControlsRef={mobileControlsRef}
           onCaught={() => setPhase('lost')}
           onTraverse={(nextRoom) => {
             setRoomKey(nextRoom)
@@ -918,20 +1180,21 @@ export default function App() {
         />
       </Canvas>
 
-      <div className="screen-noise" />
+      {!isMobile && <div className="screen-noise" />}
       <div className="danger-vignette" style={{ opacity: active ? 0.24 : 0.42 }} />
+      {isMobile && <MobileControls active={active} mobileControlsRef={mobileControlsRef} />}
 
       <div className="hud">
         <div className="hud-chip">
           Sala: {roomKey === 'main' ? 'Habitación grande' : 'Habitación secreta'}
         </div>
-        <div className="hud-chip">Mover: W A S D</div>
-        <div className="hud-chip">Correr: Shift</div>
-        <div className="hud-chip">Criaturas: 2</div>
+        <div className="hud-chip">{isMobile ? 'Mover: joystick' : 'Mover: W A S D'}</div>
+        <div className="hud-chip">{isMobile ? 'Mirar: desliza' : 'Correr: Shift'}</div>
+        <div className="hud-chip">Criaturas: {isMobile ? 1 : 2}</div>
         <div className="hud-chip">Cruza la puerta brillante</div>
       </div>
 
-      <div className="crosshair" />
+      {!isMobile && <div className="crosshair" />}
 
       <div className={`overlay ${active ? 'overlay-hidden' : ''}`}>
         <div className="overlay-card">
@@ -943,9 +1206,13 @@ export default function App() {
               : 'Quité las paredes sueltas y dejé solo la habitación grande completa para explorarla en primera persona.'}
           </p>
           <ul className="instructions">
-            <li>`W A S D` para moverte</li>
-            <li>`Shift` para correr</li>
-            <li>Haz clic en la escena para capturar el mouse</li>
+            <li>{isMobile ? 'Usa el joystick izquierdo para moverte' : '`W A S D` para moverte'}</li>
+            <li>{isMobile ? 'Desliza a la derecha para mirar' : '`Shift` para correr'}</li>
+            <li>
+              {isMobile
+                ? 'Mantén pulsado "Correr" para huir más rápido'
+                : 'Haz clic en la escena para capturar el mouse'}
+            </li>
           </ul>
           <button
             className="start-button"
