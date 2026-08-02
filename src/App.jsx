@@ -8,6 +8,7 @@ const PLAYER_PADDING = 1.8
 const PLAYER_RADIUS = 0.28
 const MOBILE_BREAKPOINT = 900
 const MOBILE_LOOK_SENSITIVITY = 0.0032
+const BACKGROUND_MUSIC_URL = new URL('../musica.mp3', import.meta.url).href
 const ROOM_ASSET_URL = new URL('../backrooms_another_level.glb', import.meta.url).href
 const SECOND_ROOM_ASSET_URL = new URL(
   '../rec_room_-_backrooms_level_you_cheated.glb',
@@ -58,56 +59,49 @@ function useIsMobileDevice() {
   return isMobile
 }
 
-function useBackroomsHum(active) {
-  const cleanupRef = useRef(() => {})
-
+function useBackgroundMusic(enabled) {
+  const audioRef = useRef(null)
   useEffect(() => {
-    cleanupRef.current()
-    if (!active) {
-      cleanupRef.current = () => {}
+    if (typeof window === 'undefined') {
       return undefined
     }
 
-    const context = new window.AudioContext()
-    const master = context.createGain()
-    master.gain.value = 0.02
-    master.connect(context.destination)
-
-    const low = context.createOscillator()
-    const high = context.createOscillator()
-    const lfo = context.createOscillator()
-    const lfoGain = context.createGain()
-    const filter = context.createBiquadFilter()
-
-    low.type = 'sawtooth'
-    low.frequency.value = 57
-    high.type = 'triangle'
-    high.frequency.value = 114
-    lfo.type = 'sine'
-    lfo.frequency.value = 0.16
-    lfoGain.gain.value = 8
-    filter.type = 'lowpass'
-    filter.frequency.value = 650
-
-    lfo.connect(lfoGain)
-    lfoGain.connect(low.frequency)
-    low.connect(filter)
-    high.connect(filter)
-    filter.connect(master)
-
-    low.start()
-    high.start()
-    lfo.start()
-
-    cleanupRef.current = () => {
-      low.stop()
-      high.stop()
-      lfo.stop()
-      context.close().catch(() => {})
+    if (!audioRef.current) {
+      const audio = new window.Audio(BACKGROUND_MUSIC_URL)
+      audio.loop = true
+      audio.preload = 'none'
+      audio.playsInline = true
+      audio.volume = 0.38
+      audioRef.current = audio
     }
 
-    return () => cleanupRef.current()
-  }, [active])
+    const audio = audioRef.current
+
+    if (enabled) {
+      const playPromise = audio.play()
+      if (playPromise?.catch) {
+        playPromise.catch(() => {})
+      }
+    } else {
+      audio.pause()
+      audio.currentTime = 0
+    }
+
+    return undefined
+  }, [enabled])
+
+  useEffect(() => {
+    return () => {
+      if (!audioRef.current) {
+        return
+      }
+
+      audioRef.current.pause()
+      audioRef.current.src = ''
+      audioRef.current.load()
+      audioRef.current = null
+    }
+  }, [])
 }
 
 function createSceneTemplate(scene) {
@@ -177,7 +171,7 @@ function resolveRoomPoint(bounds, hint) {
   }
 }
 
-function buildNavigationData({ scene, offset, bounds, size }) {
+function buildNavigationData({ scene, offset, bounds, size, coarse = false }) {
   const probeRoot = new THREE.Group()
   const probeScene = scene.clone(true)
   probeRoot.add(probeScene)
@@ -196,8 +190,10 @@ function buildNavigationData({ scene, offset, bounds, size }) {
     new THREE.Vector3(-1, 0, 1).normalize(),
     new THREE.Vector3(-1, 0, -1).normalize(),
   ]
-  const step = THREE.MathUtils.clamp(Math.min(size.x, size.z) / 34, 0.52, 0.68)
-  const maxProbeDistance = THREE.MathUtils.clamp(step * 4.2, 2.2, 4.2)
+  const step = coarse
+    ? THREE.MathUtils.clamp(Math.min(size.x, size.z) / 24, 0.72, 0.9)
+    : THREE.MathUtils.clamp(Math.min(size.x, size.z) / 34, 0.52, 0.68)
+  const maxProbeDistance = THREE.MathUtils.clamp(step * (coarse ? 3.7 : 4.2), 2.2, 4.2)
   const columns = Math.floor((bounds.maxX - bounds.minX) / step) + 1
   const rows = Math.floor((bounds.maxZ - bounds.minZ) / step) + 1
   const walkable = new Uint8Array(columns * rows)
@@ -233,7 +229,7 @@ function buildNavigationData({ scene, offset, bounds, size }) {
         score += distance
       }
 
-      if (minDistance < PLAYER_RADIUS + 0.16) {
+      if (minDistance < PLAYER_RADIUS + (coarse ? 0.22 : 0.16)) {
         blocked = true
       }
 
@@ -408,9 +404,11 @@ function findNavigationAnchors({
   }
 }
 
-function prepareRoomData(assetUrl, scene) {
-  if (preparedRoomCache.has(assetUrl)) {
-    return preparedRoomCache.get(assetUrl)
+function prepareRoomData(assetUrl, scene, isMobile) {
+  const cacheKey = `${assetUrl}:${isMobile ? 'mobile' : 'desktop'}`
+
+  if (preparedRoomCache.has(cacheKey)) {
+    return preparedRoomCache.get(cacheKey)
   }
 
   const box = new THREE.Box3().setFromObject(scene)
@@ -438,18 +436,19 @@ function prepareRoomData(assetUrl, scene) {
       offset,
       bounds,
       size,
+      coarse: isMobile,
     }),
   }
 
-  preparedRoomCache.set(assetUrl, prepared)
+  preparedRoomCache.set(cacheKey, prepared)
   return prepared
 }
 
-function useRoomData(assetUrl, preferredSpawn, preferredMonsterSpawn) {
+function useRoomData(assetUrl, preferredSpawn, preferredMonsterSpawn, isMobile) {
   const gltf = useGLTF(assetUrl)
 
   return useMemo(() => {
-    const prepared = prepareRoomData(assetUrl, gltf.scene)
+    const prepared = prepareRoomData(assetUrl, gltf.scene, isMobile)
     const resolvedPreferredSpawn = resolveRoomPoint(prepared.bounds, preferredSpawn)
     const resolvedPreferredMonsterSpawn = resolveRoomPoint(
       prepared.bounds,
@@ -470,6 +469,7 @@ function useRoomData(assetUrl, preferredSpawn, preferredMonsterSpawn) {
   }, [
     assetUrl,
     gltf.scene,
+    isMobile,
     preferredMonsterSpawn.xRatio,
     preferredMonsterSpawn.zRatio,
     preferredMonsterSpawn.x,
@@ -814,6 +814,7 @@ function BackroomsScene({ active, onCaught, onTraverse, roomKey, runId, isMobile
     roomPreset.assetUrl,
     roomPreset.preferredSpawn,
     roomPreset.preferredMonsterSpawn,
+    isMobile,
   )
   const roomRef = useRef()
   const playerPositionRef = useRef(new THREE.Vector3(0, PLAYER_HEIGHT, 0))
@@ -1138,7 +1139,7 @@ export default function App() {
   })
   const active = phase === 'playing'
 
-  useBackroomsHum(active)
+  useBackgroundMusic(phase !== 'intro')
 
   useEffect(() => {
     if (!active || isMobile) {

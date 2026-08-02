@@ -16,6 +16,7 @@
     "three": "^0.169.0"
   },
   "devDependencies": {
+    "@gltf-transform/cli": "^3.10.1",
     "@vitejs/plugin-react": "^4.3.4",
     "vite": "^5.4.10"
   }
