@@ -14,9 +14,11 @@ const SECOND_ROOM_ASSET_URL = new URL(
 const MONSTER_ASSET_URL = new URL('../backrooms_monster.glb', import.meta.url).href
 const SECOND_MONSTER_ASSET_URL = new URL('../captain_clark_backrooms.glb', import.meta.url).href
 const NAVIGATION_HEIGHT = 1
+const preparedRoomCache = new Map()
+const sceneTemplateCache = new Map()
+const monsterTemplateCache = new Map()
 
 useGLTF.preload(ROOM_ASSET_URL)
-useGLTF.preload(SECOND_ROOM_ASSET_URL)
 useGLTF.preload(MONSTER_ASSET_URL)
 useGLTF.preload(SECOND_MONSTER_ASSET_URL)
 
@@ -74,14 +76,6 @@ function useBackroomsHum(active) {
 
 function createSceneTemplate(scene) {
   const clone = scene.clone(true)
-  clone.traverse((child) => {
-    if (!child.isMesh) {
-      return
-    }
-
-    child.castShadow = true
-    child.receiveShadow = true
-  })
   return clone
 }
 
@@ -107,6 +101,22 @@ function createMonsterTemplate(scene) {
     child.material = nextMaterials.length === 1 ? nextMaterials[0] : nextMaterials
   })
   return clone
+}
+
+function getSceneTemplate(assetUrl, scene) {
+  if (!sceneTemplateCache.has(assetUrl)) {
+    sceneTemplateCache.set(assetUrl, createSceneTemplate(scene))
+  }
+
+  return sceneTemplateCache.get(assetUrl)
+}
+
+function getMonsterTemplate(assetUrl, scene) {
+  if (!monsterTemplateCache.has(assetUrl)) {
+    monsterTemplateCache.set(assetUrl, createMonsterTemplate(scene))
+  }
+
+  return monsterTemplateCache.get(assetUrl)
 }
 
 function resolveRoomPoint(bounds, hint) {
@@ -358,46 +368,62 @@ function findNavigationAnchors({
   }
 }
 
+function prepareRoomData(assetUrl, scene) {
+  if (preparedRoomCache.has(assetUrl)) {
+    return preparedRoomCache.get(assetUrl)
+  }
+
+  const box = new THREE.Box3().setFromObject(scene)
+  const size = box.getSize(new THREE.Vector3())
+  const center = box.getCenter(new THREE.Vector3())
+  const paddingX = Math.max(PLAYER_PADDING, size.x * 0.08)
+  const paddingZ = Math.max(PLAYER_PADDING, size.z * 0.08)
+  const visualRadius = Math.max(size.x, size.y, size.z)
+  const offset = [-center.x, -box.min.y, -center.z]
+  const bounds = {
+    minX: -size.x / 2 + paddingX,
+    maxX: size.x / 2 - paddingX,
+    minZ: -size.z / 2 + paddingZ,
+    maxZ: size.z / 2 - paddingZ,
+  }
+  const prepared = {
+    template: getSceneTemplate(assetUrl, scene),
+    offset,
+    scale: 1,
+    size,
+    visualRadius,
+    bounds,
+    navigation: buildNavigationData({
+      scene,
+      offset,
+      bounds,
+      size,
+    }),
+  }
+
+  preparedRoomCache.set(assetUrl, prepared)
+  return prepared
+}
+
 function useRoomData(assetUrl, preferredSpawn, preferredMonsterSpawn) {
   const gltf = useGLTF(assetUrl)
 
   return useMemo(() => {
-    const box = new THREE.Box3().setFromObject(gltf.scene)
-    const size = box.getSize(new THREE.Vector3())
-    const center = box.getCenter(new THREE.Vector3())
-    const paddingX = Math.max(PLAYER_PADDING, size.x * 0.08)
-    const paddingZ = Math.max(PLAYER_PADDING, size.z * 0.08)
-    const visualRadius = Math.max(size.x, size.y, size.z)
-    const offset = [-center.x, -box.min.y, -center.z]
-    const bounds = {
-      minX: -size.x / 2 + paddingX,
-      maxX: size.x / 2 - paddingX,
-      minZ: -size.z / 2 + paddingZ,
-      maxZ: size.z / 2 - paddingZ,
-    }
-    const resolvedPreferredSpawn = resolveRoomPoint(bounds, preferredSpawn)
-    const resolvedPreferredMonsterSpawn = resolveRoomPoint(bounds, preferredMonsterSpawn)
-    const navigation = buildNavigationData({
-      scene: gltf.scene,
-      offset,
-      bounds,
-      size,
-    })
+    const prepared = prepareRoomData(assetUrl, gltf.scene)
+    const resolvedPreferredSpawn = resolveRoomPoint(prepared.bounds, preferredSpawn)
+    const resolvedPreferredMonsterSpawn = resolveRoomPoint(
+      prepared.bounds,
+      preferredMonsterSpawn,
+    )
     const anchors = findNavigationAnchors({
-      navigation,
-      size,
+      navigation: prepared.navigation,
+      size: prepared.size,
       preferredSpawn: resolvedPreferredSpawn,
       preferredMonsterSpawn: resolvedPreferredMonsterSpawn,
     })
 
     return {
-      template: createSceneTemplate(gltf.scene),
-      offset,
-      scale: 1,
-      size,
-      visualRadius,
-      bounds,
-      navigation,
+      ...prepared,
       spawn: anchors.spawn,
       monsterSpawn: anchors.monsterSpawn,
     }
@@ -474,7 +500,7 @@ function MonsterChaser({ active, assetUrl, roomData, playerPositionRef, onCatch,
   const monsterPositionRef = useRef(
     new THREE.Vector3(roomData.bounds.minX + 1.4, 0, roomData.bounds.minZ + 1.4),
   )
-  const template = useMemo(() => createMonsterTemplate(gltf.scene), [gltf.scene])
+  const template = useMemo(() => getMonsterTemplate(assetUrl, gltf.scene), [assetUrl, gltf.scene])
 
   const monsterScale = useMemo(() => {
     const box = new THREE.Box3().setFromObject(gltf.scene)
@@ -807,8 +833,10 @@ function BackroomsScene({ active, onCaught, onTraverse, roomKey, runId }) {
 
       <Suspense fallback={null}>
         <MainRoom roomData={roomData} roomRef={roomRef} />
-        {roomKey === 'main' && (
-          <>
+      </Suspense>
+      {roomKey === 'main' && (
+        <>
+          <Suspense fallback={null}>
             <MonsterChaser
               active={active}
               assetUrl={MONSTER_ASSET_URL}
@@ -818,6 +846,8 @@ function BackroomsScene({ active, onCaught, onTraverse, roomKey, runId }) {
               runId={runId}
               initialSpawn={monsterSpawns.firstSpawn}
             />
+          </Suspense>
+          <Suspense fallback={null}>
             <MonsterChaser
               active={active}
               assetUrl={SECOND_MONSTER_ASSET_URL}
@@ -827,8 +857,10 @@ function BackroomsScene({ active, onCaught, onTraverse, roomKey, runId }) {
               runId={runId}
               initialSpawn={monsterSpawns.secondSpawn}
             />
-          </>
-        )}
+          </Suspense>
+        </>
+      )}
+      <Suspense fallback={null}>
         <DoorPortal
           position={portalPosition}
           color={roomPreset.portalColor}
@@ -854,10 +886,23 @@ export default function App() {
 
   useBackroomsHum(active)
 
+  useEffect(() => {
+    if (!active) {
+      return undefined
+    }
+
+    const timer = window.setTimeout(() => {
+      useGLTF.preload(SECOND_ROOM_ASSET_URL)
+    }, 2500)
+
+    return () => window.clearTimeout(timer)
+  }, [active])
+
   return (
     <div id="game-shell" className={`app-shell phase-${phase}`}>
       <Canvas
-        dpr={[1, 1.25]}
+        dpr={[1, 1.1]}
+        performance={{ min: 0.75 }}
         gl={{ antialias: false, powerPreference: 'high-performance' }}
         camera={{ fov: 72, near: 0.1, far: 100, position: [0, PLAYER_HEIGHT, 5.5] }}
       >
