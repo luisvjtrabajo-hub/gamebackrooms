@@ -23,6 +23,7 @@ const monsterTemplateCache = new Map()
 
 useGLTF.preload(ROOM_ASSET_URL)
 useGLTF.preload(MONSTER_ASSET_URL)
+useGLTF.preload(SECOND_MONSTER_ASSET_URL)
 
 function useIsMobileDevice() {
   const [isMobile, setIsMobile] = useState(() => {
@@ -285,7 +286,35 @@ function clampInput(value) {
   return THREE.MathUtils.clamp(value, -1, 1)
 }
 
+function scoreMonsterSpawnCandidate(candidate, playerSpawn, occupiedPositions = []) {
+  const distanceFromPlayerSpawn = Math.hypot(
+    candidate.x - playerSpawn.x,
+    candidate.z - playerSpawn.z,
+  )
+  const nearestOccupiedDistance = occupiedPositions.reduce((best, position) => {
+    if (!position) {
+      return best
+    }
+
+    return Math.min(best, Math.hypot(candidate.x - position.x, candidate.z - position.z))
+  }, Infinity)
+
+  return (
+    distanceFromPlayerSpawn * 1.35 +
+    Math.min(nearestOccupiedDistance, 14) * 1.8 +
+    candidate.score * 0.08
+  )
+}
+
 function pickRandomMonsterSpawn(navigation, playerSpawn, size, occupiedPositions = []) {
+  if (navigation.candidates.length === 0) {
+    return {
+      x: playerSpawn.x,
+      y: 0,
+      z: playerSpawn.z,
+    }
+  }
+
   const minimumMonsterDistance = Math.max(Math.min(size.x, size.z) * 0.24, 7.5)
   const viableCandidates = navigation.candidates.filter((candidate) => {
     const distanceFromPlayerSpawn = Math.hypot(
@@ -307,8 +336,14 @@ function pickRandomMonsterSpawn(navigation, playerSpawn, size, occupiedPositions
   })
 
   const pool = viableCandidates.length > 0 ? viableCandidates : navigation.candidates
-  const randomIndex = Math.floor(Math.random() * pool.length)
-  const selected = pool[randomIndex] ?? navigation.candidates[0]
+  const rankedPool = [...pool].sort(
+    (left, right) =>
+      scoreMonsterSpawnCandidate(right, playerSpawn, occupiedPositions) -
+      scoreMonsterSpawnCandidate(left, playerSpawn, occupiedPositions),
+  )
+  const selectionPool = rankedPool.slice(0, Math.min(6, rankedPool.length))
+  const randomIndex = Math.floor(Math.random() * selectionPool.length)
+  const selected = selectionPool[randomIndex] ?? rankedPool[0]
 
   return {
     x: selected?.x ?? playerSpawn.x,
@@ -945,20 +980,18 @@ function BackroomsScene({ active, onCaught, onTraverse, roomKey, runId, isMobile
               isMobile={isMobile}
             />
           </Suspense>
-          {!isMobile && (
-            <Suspense fallback={null}>
-              <MonsterChaser
-                active={active}
-                assetUrl={SECOND_MONSTER_ASSET_URL}
-                roomData={roomData}
-                playerPositionRef={playerPositionRef}
-                onCatch={onCaught}
-                runId={runId}
-                initialSpawn={monsterSpawns.secondSpawn}
-                isMobile={isMobile}
-              />
-            </Suspense>
-          )}
+          <Suspense fallback={null}>
+            <MonsterChaser
+              active={active}
+              assetUrl={SECOND_MONSTER_ASSET_URL}
+              roomData={roomData}
+              playerPositionRef={playerPositionRef}
+              onCatch={onCaught}
+              runId={runId}
+              initialSpawn={monsterSpawns.secondSpawn}
+              isMobile={isMobile}
+            />
+          </Suspense>
         </>
       )}
       <Suspense fallback={null}>
