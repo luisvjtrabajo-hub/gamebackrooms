@@ -1,5 +1,5 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
-import { Canvas, useFrame, useThree } from '@react-three/fiber'
+import { Canvas, useFrame, useGraph, useThree } from '@react-three/fiber'
 import { Clone, PointerLockControls, useGLTF } from '@react-three/drei'
 import { io } from 'socket.io-client'
 import * as THREE from 'three'
@@ -19,7 +19,7 @@ const SECOND_ROOM_ASSET_URL = new URL(
 const MONSTER_ASSET_URL = new URL('../backrooms_monster.glb', import.meta.url).href
 const SECOND_MONSTER_ASSET_URL = new URL('../captain_clark_backrooms.glb', import.meta.url).href
 const PLAYER_SKIN_ASSET_URL = new URL(
-  '../poppy_playtime_chapter_5__lewis.glb',
+  '../poppy_playtime_chapter_5__lewis-transformed.glb',
   import.meta.url,
 ).href
 const NAVIGATION_HEIGHT = 1
@@ -28,7 +28,6 @@ const MULTIPLAYER_API_URL =
 const preparedRoomCache = new Map()
 const sceneTemplateCache = new Map()
 const monsterTemplateCache = new Map()
-const playerTemplateCache = new Map()
 
 useGLTF.preload(ROOM_ASSET_URL)
 useGLTF.preload(SECOND_ROOM_ASSET_URL)
@@ -185,35 +184,6 @@ function getMonsterTemplate(assetUrl, scene) {
   }
 
   return monsterTemplateCache.get(assetUrl)
-}
-
-function createPlayerTemplate(scene) {
-  const clone = cloneSkeleton(scene)
-  clone.traverse((child) => {
-    if (!child.isMesh) {
-      return
-    }
-
-    child.castShadow = true
-    child.receiveShadow = true
-    const materials = Array.isArray(child.material) ? child.material : [child.material]
-    const nextMaterials = materials.map((material) => {
-      const nextMaterial = material.clone()
-      nextMaterial.roughness = Math.min(nextMaterial.roughness ?? 0.75, 0.88)
-      nextMaterial.metalness = Math.min(nextMaterial.metalness ?? 0.08, 0.12)
-      return nextMaterial
-    })
-    child.material = nextMaterials.length === 1 ? nextMaterials[0] : nextMaterials
-  })
-  return clone
-}
-
-function getPlayerTemplate(assetUrl, scene) {
-  if (!playerTemplateCache.has(assetUrl)) {
-    playerTemplateCache.set(assetUrl, createPlayerTemplate(scene))
-  }
-
-  return playerTemplateCache.get(assetUrl)
 }
 
 function resolveRoomPoint(bounds, hint) {
@@ -783,40 +753,37 @@ function MonsterChaser({
   )
 }
 
+function LewisPlayerModel() {
+  const { scene } = useGLTF(PLAYER_SKIN_ASSET_URL)
+  const clone = useMemo(() => cloneSkeleton(scene), [scene])
+  const { nodes, materials } = useGraph(clone)
+
+  if (!nodes?._rootJoint || !nodes?.Object_168?.geometry || !nodes?.Object_168?.skeleton) {
+    return <primitive object={clone} rotation={[-Math.PI / 2, 0, 0]} scale={0.075} />
+  }
+
+  return (
+    <group dispose={null}>
+      <primitive object={nodes._rootJoint} />
+      <skinnedMesh
+        castShadow
+        receiveShadow
+        geometry={nodes.Object_168.geometry}
+        material={materials.HazmatSuitMat ?? nodes.Object_168.material}
+        skeleton={nodes.Object_168.skeleton}
+        rotation={[-Math.PI / 2, 0, 0]}
+        scale={0.075}
+      />
+    </group>
+  )
+}
+
 function MultiplayerMarker({ player, isLocal }) {
-  const gltf = useGLTF(PLAYER_SKIN_ASSET_URL)
   const groupRef = useRef()
   const targetPosition = useMemo(() => new THREE.Vector3(), [])
   const currentPosition = useMemo(() => new THREE.Vector3(), [])
   const yBobOffset = useRef(Math.random() * Math.PI * 2)
   const currentRotationY = useRef(player.rotation?.y ?? 0)
-  const template = useMemo(() => createPlayerTemplate(gltf.scene), [gltf.scene])
-  const playerScale = useMemo(() => {
-    const previewRoot = new THREE.Group()
-    const previewScene = cloneSkeleton(gltf.scene)
-    previewScene.rotation.x = -Math.PI / 2
-    previewScene.rotation.z = Math.PI / 2
-    previewRoot.add(previewScene)
-    previewRoot.updateWorldMatrix(true, true)
-
-    const box = new THREE.Box3().setFromObject(previewRoot)
-    const size = box.getSize(new THREE.Vector3())
-    const center = box.getCenter(new THREE.Vector3())
-    const desiredHeight = 1.26
-    const desiredWidth = 0.56
-    const desiredDepth = 0.46
-    const scale = Math.min(
-      desiredHeight / Math.max(size.y, 0.1),
-      desiredWidth / Math.max(size.x, 0.1),
-      desiredDepth / Math.max(size.z, 0.1),
-    )
-
-    return {
-      scale,
-      offset: [-center.x * scale, -box.min.y * scale, -center.z * scale],
-      rotation: [-Math.PI / 2, 0, Math.PI / 2],
-    }
-  }, [gltf.scene])
 
   useEffect(() => {
     targetPosition.set(player.position.x, 0, player.position.z)
@@ -867,14 +834,7 @@ function MultiplayerMarker({ player, isLocal }) {
 
   return (
     <group ref={groupRef}>
-      {!isLocal && (
-        <primitive
-          object={template}
-          position={playerScale.offset}
-          rotation={playerScale.rotation}
-          scale={playerScale.scale}
-        />
-      )}
+      {!isLocal && <LewisPlayerModel />}
       <mesh position={[0, 0.05, 0]} rotation={[-Math.PI / 2, 0, 0]}>
         <ringGeometry args={[0.18, 0.33, 28]} />
         <meshBasicMaterial color={color} transparent opacity={0.95} />
