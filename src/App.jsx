@@ -1254,21 +1254,12 @@ export default function App() {
       <div className={`overlay ${active ? 'overlay-hidden' : ''}`}>
         <div className="overlay-card">
           <p className="eyebrow">Backrooms</p>
-          <h1>{phase === 'lost' ? 'La criatura te encontró' : 'Habitación lista'}</h1>
-          <p>
-            {phase === 'lost'
-              ? 'Las criaturas de Backrooms te alcanzaron dentro de la sala. Vuelve a entrar y sigue corriendo.'
-              : 'Quité las paredes sueltas y dejé solo la habitación grande completa para explorarla en primera persona.'}
-          </p>
-          <ul className="instructions">
-            <li>{isMobile ? 'Usa el joystick izquierdo para moverte' : '`W A S D` para moverte'}</li>
-            <li>{isMobile ? 'Arrastra en la pantalla para mirar' : '`Shift` para correr'}</li>
-            <li>
-              {isMobile
-                ? 'Mantén pulsado "Correr" para huir más rápido'
-                : 'Haz clic en la escena para capturar el mouse'}
-            </li>
-          </ul>
+          <h1>{phase === 'lost' ? 'La criatura te encontró' : 'Bienvenido a Backrooms'}</h1>
+          {phase === 'lost' && (
+            <p>
+              Las criaturas de Backrooms te alcanzaron dentro de la sala. Vuelve a entrar y sigue corriendo.
+            </p>
+          )}
           <button
             className="start-button"
             type="button"
@@ -1278,7 +1269,7 @@ export default function App() {
               setPhase('playing')
             }}
           >
-            {phase === 'lost' ? 'Volver a entrar' : 'Entrar a la habitación'}
+            {phase === 'lost' ? 'Volver a entrar' : 'Iniciar'}
           </button>
         </div>
       </div>
