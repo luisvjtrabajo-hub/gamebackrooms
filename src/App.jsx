@@ -352,6 +352,39 @@ function pickRandomMonsterSpawn(navigation, playerSpawn, size, occupiedPositions
   }
 }
 
+function pickMonsterSpawns(navigation, playerSpawn, size) {
+  const firstSpawn = pickRandomMonsterSpawn(navigation, playerSpawn, size)
+  let secondSpawn = pickRandomMonsterSpawn(navigation, playerSpawn, size, [firstSpawn])
+  const minimumPairDistance = Math.max(Math.min(size.x, size.z) * 0.3, 8.5)
+
+  if (
+    Math.hypot(firstSpawn.x - secondSpawn.x, firstSpawn.z - secondSpawn.z) < minimumPairDistance &&
+    navigation.candidates.length > 1
+  ) {
+    const fallbackCandidate = [...navigation.candidates]
+      .sort((left, right) => {
+        const leftScore =
+          Math.hypot(left.x - playerSpawn.x, left.z - playerSpawn.z) +
+          Math.hypot(left.x - firstSpawn.x, left.z - firstSpawn.z) * 1.8
+        const rightScore =
+          Math.hypot(right.x - playerSpawn.x, right.z - playerSpawn.z) +
+          Math.hypot(right.x - firstSpawn.x, right.z - firstSpawn.z) * 1.8
+
+        return rightScore - leftScore
+      })[0]
+
+    if (fallbackCandidate) {
+      secondSpawn = {
+        x: fallbackCandidate.x,
+        y: 0,
+        z: fallbackCandidate.z,
+      }
+    }
+  }
+
+  return { firstSpawn, secondSpawn }
+}
+
 function findNavigationAnchors({
   navigation,
   size,
@@ -863,20 +896,9 @@ function BackroomsScene({ active, onCaught, onTraverse, roomKey, runId, isMobile
     [roomData.bounds, roomPreset.preferredLookTarget],
   )
   const monsterSpawns = useMemo(() => {
-    const firstSpawn = pickRandomMonsterSpawn(
-      roomData.navigation,
-      roomData.spawn,
-      roomData.size,
-    )
-    const secondSpawn = pickRandomMonsterSpawn(
-      roomData.navigation,
-      roomData.spawn,
-      roomData.size,
-      [firstSpawn],
-    )
-
-    return { firstSpawn, secondSpawn }
+    return pickMonsterSpawns(roomData.navigation, roomData.spawn, roomData.size)
   }, [roomData, roomKey, runId])
+  const secondMonsterAssetUrl = isMobile ? MONSTER_ASSET_URL : SECOND_MONSTER_ASSET_URL
   const portalPosition = useMemo(() => {
     if (roomKey === 'main') {
       return {
@@ -983,7 +1005,7 @@ function BackroomsScene({ active, onCaught, onTraverse, roomKey, runId, isMobile
           <Suspense fallback={null}>
             <MonsterChaser
               active={active}
-              assetUrl={SECOND_MONSTER_ASSET_URL}
+              assetUrl={secondMonsterAssetUrl}
               roomData={roomData}
               playerPositionRef={playerPositionRef}
               onCatch={onCaught}
@@ -1016,7 +1038,6 @@ function BackroomsScene({ active, onCaught, onTraverse, roomKey, runId, isMobile
 
 function MobileControls({ active, mobileControlsRef }) {
   const [moveThumb, setMoveThumb] = useState({ x: 0, y: 0 })
-  const [lookActive, setLookActive] = useState(false)
   const movePointerIdRef = useRef(null)
   const lookPointerIdRef = useRef(null)
   const lookLastRef = useRef({ x: 0, y: 0 })
@@ -1034,7 +1055,6 @@ function MobileControls({ active, mobileControlsRef }) {
     mobileControlsRef.current.lookY = 0
     mobileControlsRef.current.running = false
     setMoveThumb({ x: 0, y: 0 })
-    setLookActive(false)
     return undefined
   }, [active, mobileControlsRef])
 
@@ -1064,8 +1084,43 @@ function MobileControls({ active, mobileControlsRef }) {
     mobileControlsRef.current.moveY = -y / maxRadius
   }
 
+  const startLook = (event) => {
+    if (event.target.closest('.mobile-pad, .mobile-actions')) {
+      return
+    }
+
+    lookPointerIdRef.current = event.pointerId
+    lookLastRef.current = { x: event.clientX, y: event.clientY }
+    event.currentTarget.setPointerCapture(event.pointerId)
+  }
+
+  const moveLook = (event) => {
+    if (lookPointerIdRef.current !== event.pointerId) {
+      return
+    }
+
+    mobileControlsRef.current.lookX += event.clientX - lookLastRef.current.x
+    mobileControlsRef.current.lookY += event.clientY - lookLastRef.current.y
+    lookLastRef.current = { x: event.clientX, y: event.clientY }
+  }
+
+  const endLook = (event) => {
+    if (lookPointerIdRef.current !== event.pointerId) {
+      return
+    }
+
+    event.currentTarget.releasePointerCapture(event.pointerId)
+    lookPointerIdRef.current = null
+  }
+
   return (
-    <div className={`mobile-ui ${active ? '' : 'mobile-ui-hidden'}`}>
+    <div
+      className={`mobile-ui ${active ? '' : 'mobile-ui-hidden'}`}
+      onPointerDown={startLook}
+      onPointerMove={moveLook}
+      onPointerUp={endLook}
+      onPointerCancel={endLook}
+    >
       <div
         className="mobile-pad mobile-pad-left"
         onPointerDown={(event) => {
@@ -1119,40 +1174,6 @@ function MobileControls({ active, mobileControlsRef }) {
         >
           Correr
         </button>
-      </div>
-
-      <div
-        className={`mobile-look-zone ${lookActive ? 'mobile-look-zone-active' : ''}`}
-        onPointerDown={(event) => {
-          lookPointerIdRef.current = event.pointerId
-          lookLastRef.current = { x: event.clientX, y: event.clientY }
-          setLookActive(true)
-          event.currentTarget.setPointerCapture(event.pointerId)
-        }}
-        onPointerMove={(event) => {
-          if (lookPointerIdRef.current !== event.pointerId) {
-            return
-          }
-
-          mobileControlsRef.current.lookX += event.clientX - lookLastRef.current.x
-          mobileControlsRef.current.lookY += event.clientY - lookLastRef.current.y
-          lookLastRef.current = { x: event.clientX, y: event.clientY }
-        }}
-        onPointerUp={(event) => {
-          if (lookPointerIdRef.current !== event.pointerId) {
-            return
-          }
-
-          event.currentTarget.releasePointerCapture(event.pointerId)
-          lookPointerIdRef.current = null
-          setLookActive(false)
-        }}
-        onPointerCancel={() => {
-          lookPointerIdRef.current = null
-          setLookActive(false)
-        }}
-      >
-        <span className="mobile-look-label">Desliza para mirar</span>
       </div>
     </div>
   )
@@ -1223,8 +1244,8 @@ export default function App() {
           Sala: {roomKey === 'main' ? 'Habitación grande' : 'Habitación secreta'}
         </div>
         <div className="hud-chip">{isMobile ? 'Mover: joystick' : 'Mover: W A S D'}</div>
-        <div className="hud-chip">{isMobile ? 'Mirar: desliza' : 'Correr: Shift'}</div>
-        <div className="hud-chip">Criaturas: {isMobile ? 1 : 2}</div>
+        <div className="hud-chip">{isMobile ? 'Mirar: arrastra pantalla' : 'Correr: Shift'}</div>
+        <div className="hud-chip">Criaturas: 2</div>
         <div className="hud-chip">Cruza la puerta brillante</div>
       </div>
 
@@ -1241,7 +1262,7 @@ export default function App() {
           </p>
           <ul className="instructions">
             <li>{isMobile ? 'Usa el joystick izquierdo para moverte' : '`W A S D` para moverte'}</li>
-            <li>{isMobile ? 'Desliza a la derecha para mirar' : '`Shift` para correr'}</li>
+            <li>{isMobile ? 'Arrastra en la pantalla para mirar' : '`Shift` para correr'}</li>
             <li>
               {isMobile
                 ? 'Mantén pulsado "Correr" para huir más rápido'

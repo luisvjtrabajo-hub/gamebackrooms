@@ -127,7 +127,8 @@ canvas {
   position: absolute;
   inset: 0;
   z-index: 5;
-  pointer-events: none;
+  pointer-events: auto;
+  touch-action: none;
 }
 
 .mobile-ui-hidden {
@@ -136,7 +137,6 @@ canvas {
 }
 
 .mobile-pad,
-.mobile-look-zone,
 .mobile-run-button {
   touch-action: none;
 }
@@ -192,32 +192,6 @@ canvas {
   color: #0a0d0c;
   background: linear-gradient(135deg, #fff4b5 0%, #73fff4 100%);
   box-shadow: 0 12px 30px rgba(115, 255, 244, 0.2);
-}
-
-.mobile-look-zone {
-  position: absolute;
-  right: 18px;
-  bottom: 24px;
-  width: min(42vw, 220px);
-  height: 150px;
-  border-radius: 22px;
-  border: 1px solid rgba(245, 235, 159, 0.14);
-  background: rgba(9, 9, 6, 0.12);
-  backdrop-filter: blur(8px);
-  display: grid;
-  place-items: center;
-  pointer-events: auto;
-}
-
-.mobile-look-zone-active {
-  border-color: rgba(115, 255, 244, 0.35);
-}
-
-.mobile-look-label {
-  font-size: 12px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: rgba(255, 248, 213, 0.72);
 }
 
 .overlay {
