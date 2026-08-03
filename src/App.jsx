@@ -32,6 +32,7 @@ const playerTemplateCache = new Map()
 useGLTF.preload(ROOM_ASSET_URL)
 useGLTF.preload(MONSTER_ASSET_URL)
 useGLTF.preload(SECOND_MONSTER_ASSET_URL)
+useGLTF.preload(PLAYER_SKIN_ASSET_URL)
 
 function getRequestedRoomCode() {
   if (typeof window === 'undefined') {
@@ -1411,6 +1412,7 @@ function MobileControls({ active, mobileControlsRef }) {
 
 function useMultiplayerRoom({ phase, roomKey, runId, localPlayerState }) {
   const [room, setRoom] = useState(null)
+  const [availableRooms, setAvailableRooms] = useState([])
   const [localPlayerId, setLocalPlayerId] = useState('')
   const [connectionStatus, setConnectionStatus] = useState('connecting')
   const [connectionError, setConnectionError] = useState('')
@@ -1445,6 +1447,10 @@ function useMultiplayerRoom({ phase, roomKey, runId, localPlayerState }) {
       setRoom(nextRoom)
       setConnectionStatus('connected')
       setConnectionError('')
+    }
+
+    const handleRoomList = (rooms) => {
+      setAvailableRooms(Array.isArray(rooms) ? rooms : [])
     }
 
     const handlePlayerUpdated = (player) => {
@@ -1506,6 +1512,7 @@ function useMultiplayerRoom({ phase, roomKey, runId, localPlayerState }) {
     socket.on('connect', handleConnect)
     socket.on('player:assigned', handleAssigned)
     socket.on('room:state', handleRoomState)
+    socket.on('room:list', handleRoomList)
     socket.on('player:updated', handlePlayerUpdated)
     socket.on('player:joined', handlePlayerJoined)
     socket.on('player:left', handlePlayerLeft)
@@ -1518,6 +1525,7 @@ function useMultiplayerRoom({ phase, roomKey, runId, localPlayerState }) {
       socket.off('connect', handleConnect)
       socket.off('player:assigned', handleAssigned)
       socket.off('room:state', handleRoomState)
+      socket.off('room:list', handleRoomList)
       socket.off('player:updated', handlePlayerUpdated)
       socket.off('player:joined', handlePlayerJoined)
       socket.off('player:left', handlePlayerLeft)
@@ -1618,6 +1626,7 @@ function useMultiplayerRoom({ phase, roomKey, runId, localPlayerState }) {
 
   return {
     room,
+    availableRooms,
     localPlayerId,
     roomCode: room?.code ?? roomCodeRef.current,
     connectionStatus,
@@ -1710,6 +1719,7 @@ export default function App() {
   const active = phase === 'playing'
   const {
     room,
+    availableRooms,
     localPlayerId,
     roomCode,
     connectionStatus,
@@ -1754,14 +1764,15 @@ export default function App() {
   useBackgroundMusic(phase !== 'intro')
 
   useEffect(() => {
-    if (!active || isMobile) {
+    if (!active) {
       return undefined
     }
 
     const timer = window.setTimeout(() => {
       useGLTF.preload(SECOND_ROOM_ASSET_URL)
       useGLTF.preload(SECOND_MONSTER_ASSET_URL)
-    }, 2500)
+      useGLTF.preload(PLAYER_SKIN_ASSET_URL)
+    }, isMobile ? 400 : 1200)
 
     return () => window.clearTimeout(timer)
   }, [active, isMobile])
@@ -1907,6 +1918,38 @@ export default function App() {
                 >
                   Unirme
                 </button>
+              </div>
+              <div className="room-list">
+                <div className="room-list-header">
+                  <span>Partidas disponibles</span>
+                  <span>{availableRooms.length}</span>
+                </div>
+                {availableRooms.length === 0 ? (
+                  <p className="room-list-empty">No hay salas abiertas todavía.</p>
+                ) : (
+                  availableRooms.map((availableRoom) => (
+                    <button
+                      key={availableRoom.code}
+                      className="room-list-item"
+                      type="button"
+                      disabled={sessionBusy}
+                      onClick={async () => {
+                        const joined = await joinRoom(availableRoom.code)
+                        if (joined) {
+                          setRoomKey('main')
+                          setRunId((value) => value + 1)
+                          setPhase('playing')
+                        }
+                      }}
+                    >
+                      <span className="room-list-code">{availableRoom.code}</span>
+                      <span className="room-list-meta">
+                        {availableRoom.hostPlayerName} · {availableRoom.playerCount}/
+                        {availableRoom.playerLimit}
+                      </span>
+                    </button>
+                  ))
+                )}
               </div>
               {connectionError ? <p className="session-error">{connectionError}</p> : null}
             </>

@@ -335,6 +335,63 @@ canvas {
   margin-top: 18px;
 }
 
+.room-list {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(246, 235, 153, 0.14);
+}
+
+.room-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(255, 248, 213, 0.72);
+}
+
+.room-list-empty {
+  margin-top: 12px;
+  font-size: 14px;
+  color: rgba(255, 248, 213, 0.64);
+}
+
+.room-list-item {
+  width: 100%;
+  margin-top: 10px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(246, 235, 153, 0.14);
+  background: rgba(9, 9, 6, 0.28);
+  color: #fff7be;
+  text-align: left;
+  cursor: pointer;
+}
+
+.room-list-item:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.room-list-code,
+.room-list-meta {
+  display: block;
+}
+
+.room-list-code {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.room-list-meta {
+  margin-top: 4px;
+  font-size: 12px;
+  color: rgba(255, 248, 213, 0.72);
+}
+
 .instructions {
   margin: 18px 0 0;
   padding-left: 18px;
