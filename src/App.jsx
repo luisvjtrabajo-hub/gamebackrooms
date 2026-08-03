@@ -794,7 +794,13 @@ function MultiplayerMarker({ player, isLocal }) {
     [gltf.scene],
   )
   const playerScale = useMemo(() => {
-    const box = new THREE.Box3().setFromObject(gltf.scene)
+    const previewRoot = new THREE.Group()
+    const previewScene = gltf.scene.clone(true)
+    previewScene.rotation.x = -Math.PI / 2
+    previewRoot.add(previewScene)
+    previewRoot.updateWorldMatrix(true, true)
+
+    const box = new THREE.Box3().setFromObject(previewRoot)
     const size = box.getSize(new THREE.Vector3())
     const center = box.getCenter(new THREE.Vector3())
     const desiredHeight = 1.72
@@ -803,6 +809,7 @@ function MultiplayerMarker({ player, isLocal }) {
     return {
       scale,
       offset: [-center.x * scale, -box.min.y * scale, -center.z * scale],
+      rotation: [-Math.PI / 2, 0, 0],
     }
   }, [gltf.scene])
 
@@ -856,7 +863,12 @@ function MultiplayerMarker({ player, isLocal }) {
   return (
     <group ref={groupRef}>
       {!isLocal && (
-        <Clone object={template} position={playerScale.offset} scale={playerScale.scale} />
+        <Clone
+          object={template}
+          position={playerScale.offset}
+          rotation={playerScale.rotation}
+          scale={playerScale.scale}
+        />
       )}
       <mesh position={[0, 0.05, 0]} rotation={[-Math.PI / 2, 0, 0]}>
         <ringGeometry args={[0.18, 0.33, 28]} />
