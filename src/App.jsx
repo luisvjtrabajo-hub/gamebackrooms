@@ -149,7 +149,14 @@ function createSceneTemplate(scene) {
 }
 
 function createMonsterTemplate(scene) {
-  const clone = scene.clone(true)
+  let hasSkinnedMesh = false
+  scene.traverse((child) => {
+    if (child.isSkinnedMesh) {
+      hasSkinnedMesh = true
+    }
+  })
+
+  const clone = hasSkinnedMesh ? cloneSkeleton(scene) : scene.clone(true)
   clone.traverse((child) => {
     if (!child.isMesh) {
       return
@@ -157,14 +164,15 @@ function createMonsterTemplate(scene) {
 
     child.castShadow = true
     child.receiveShadow = true
+    child.frustumCulled = false
     const materials = Array.isArray(child.material)
       ? child.material
       : [child.material]
     const nextMaterials = materials.map((material) => {
       const nextMaterial = material.clone()
-      nextMaterial.emissive = new THREE.Color('#250018')
-      nextMaterial.emissiveIntensity = 0.35
-      nextMaterial.roughness = 0.82
+      nextMaterial.emissive = new THREE.Color('#4a001f')
+      nextMaterial.emissiveIntensity = 0.9
+      nextMaterial.roughness = 0.78
       return nextMaterial
     })
     child.material = nextMaterials.length === 1 ? nextMaterials[0] : nextMaterials
@@ -324,7 +332,7 @@ function clampInput(value) {
   return THREE.MathUtils.clamp(value, -1, 1)
 }
 
-function scoreMonsterSpawnCandidate(candidate, playerSpawn, occupiedPositions = []) {
+function scoreMonsterSpawnCandidate(candidate, playerSpawn, size, occupiedPositions = []) {
   const distanceFromPlayerSpawn = Math.hypot(
     candidate.x - playerSpawn.x,
     candidate.z - playerSpawn.z,
@@ -337,9 +345,11 @@ function scoreMonsterSpawnCandidate(candidate, playerSpawn, occupiedPositions = 
     return Math.min(best, Math.hypot(candidate.x - position.x, candidate.z - position.z))
   }, Infinity)
 
+  const targetDistance = THREE.MathUtils.clamp(Math.min(size.x, size.z) * 0.18, 8, 14)
+
   return (
-    distanceFromPlayerSpawn * 1.35 +
-    Math.min(nearestOccupiedDistance, 14) * 1.8 +
+    -Math.abs(distanceFromPlayerSpawn - targetDistance) * 1.6 +
+    Math.min(nearestOccupiedDistance, 10) * 1.4 +
     candidate.score * 0.08
   )
 }
@@ -353,14 +363,18 @@ function pickRandomMonsterSpawn(navigation, playerSpawn, size, occupiedPositions
     }
   }
 
-  const minimumMonsterDistance = Math.max(Math.min(size.x, size.z) * 0.24, 7.5)
+  const minimumMonsterDistance = Math.max(Math.min(size.x, size.z) * 0.11, 5.5)
+  const maximumMonsterDistance = Math.max(Math.min(size.x, size.z) * 0.3, 16)
   const viableCandidates = navigation.candidates.filter((candidate) => {
     const distanceFromPlayerSpawn = Math.hypot(
       candidate.x - playerSpawn.x,
       candidate.z - playerSpawn.z,
     )
 
-    if (distanceFromPlayerSpawn < minimumMonsterDistance) {
+    if (
+      distanceFromPlayerSpawn < minimumMonsterDistance ||
+      distanceFromPlayerSpawn > maximumMonsterDistance
+    ) {
       return false
     }
 
@@ -376,10 +390,10 @@ function pickRandomMonsterSpawn(navigation, playerSpawn, size, occupiedPositions
   const pool = viableCandidates.length > 0 ? viableCandidates : navigation.candidates
   const rankedPool = [...pool].sort(
     (left, right) =>
-      scoreMonsterSpawnCandidate(right, playerSpawn, occupiedPositions) -
-      scoreMonsterSpawnCandidate(left, playerSpawn, occupiedPositions),
+      scoreMonsterSpawnCandidate(right, playerSpawn, size, occupiedPositions) -
+      scoreMonsterSpawnCandidate(left, playerSpawn, size, occupiedPositions),
   )
-  const selectionPool = rankedPool.slice(0, Math.min(6, rankedPool.length))
+  const selectionPool = rankedPool.slice(0, Math.min(8, rankedPool.length))
   const randomIndex = Math.floor(Math.random() * selectionPool.length)
   const selected = selectionPool[randomIndex] ?? rankedPool[0]
 
@@ -393,7 +407,7 @@ function pickRandomMonsterSpawn(navigation, playerSpawn, size, occupiedPositions
 function pickMonsterSpawns(navigation, playerSpawn, size) {
   const firstSpawn = pickRandomMonsterSpawn(navigation, playerSpawn, size)
   let secondSpawn = pickRandomMonsterSpawn(navigation, playerSpawn, size, [firstSpawn])
-  const minimumPairDistance = Math.max(Math.min(size.x, size.z) * 0.3, 8.5)
+  const minimumPairDistance = Math.max(Math.min(size.x, size.z) * 0.18, 6.25)
 
   if (
     Math.hypot(firstSpawn.x - secondSpawn.x, firstSpawn.z - secondSpawn.z) < minimumPairDistance &&
@@ -692,7 +706,7 @@ function MonsterChaser({
 
     const current = monsterPositionRef.current
     const player = playerPositionRef.current
-    const desiredStep = Math.min(delta * 2.2, 0.08)
+    const desiredStep = Math.min(delta * (isMobile ? 3.6 : 3.2), isMobile ? 0.12 : 0.1)
     const dx = player.x - current.x
     const dz = player.z - current.z
     const distanceToPlayer = Math.hypot(dx, dz)
@@ -734,7 +748,7 @@ function MonsterChaser({
 
     groupRef.current.position.set(
       current.x,
-      Math.sin(state.clock.getElapsedTime() * 3.2) * 0.06,
+      Math.sin(state.clock.getElapsedTime() * 3.2) * 0.035,
       current.z,
     )
   })
@@ -742,15 +756,13 @@ function MonsterChaser({
   return (
     <group ref={groupRef}>
       <Clone object={template} position={monsterScale.offset} scale={monsterScale.scale} />
-      {!isMobile && (
-        <pointLight
-          color="#7d173f"
-          intensity={3.2}
-          distance={10}
-          decay={2}
-          position={[0, 1.2, 0]}
-        />
-      )}
+      <pointLight
+        color="#b71557"
+        intensity={isMobile ? 2.1 : 3.6}
+        distance={isMobile ? 7.5 : 11}
+        decay={2}
+        position={[0, 1.25, 0]}
+      />
     </group>
   )
 }
@@ -1648,12 +1660,6 @@ function RoomMinimap({ players, localPlayerId, roomKey, bounds, roomCode, connec
 
   return (
     <div className="minimap-shell">
-      <div className="minimap-header">
-        <span className="minimap-title">Sala {roomCode || '--'}</span>
-        <span className="minimap-status">
-          {connectionStatus === 'connected' ? `${visiblePlayers.length}/2` : '...'}
-        </span>
-      </div>
       <svg className="minimap" viewBox="0 0 100 100" aria-label="Posicion de jugadores">
         <rect x="2" y="2" width="96" height="96" rx="14" fill="rgba(12, 12, 8, 0.72)" />
         {points.map((point) => (
@@ -1668,16 +1674,6 @@ function RoomMinimap({ players, localPlayerId, roomKey, bounds, roomCode, connec
           />
         ))}
       </svg>
-      <div className="minimap-legend">
-        <span className="minimap-legend-item">
-          <span className="minimap-dot minimap-dot-self" />
-          Tú
-        </span>
-        <span className="minimap-legend-item">
-          <span className="minimap-dot minimap-dot-other" />
-          Otro jugador
-        </span>
-      </div>
     </div>
   )
 }
@@ -1734,19 +1730,7 @@ export default function App() {
   }, [localPlayerId, localPlayerState.position, localPlayerState.rotation, phase, room?.players, roomKey])
   const hasOtherPlayer = roomPlayers.some((player) => player.id !== localPlayerId)
   const roomPresenceText =
-    connectionStatus === 'connected'
-      ? hasOtherPlayer
-        ? 'Otro jugador conectado'
-        : 'Esperando otro jugador'
-      : connectionStatus === 'ready'
-        ? 'Listo para crear o unirse'
-        : connectionStatus === 'joining'
-          ? 'Uniendo a la sala...'
-          : connectionStatus === 'disconnected'
-            ? 'Reconectando multijugador...'
-      : connectionStatus === 'error'
-        ? connectionError || 'No se pudo unir a la sala'
-        : 'Conectando sala...'
+    active && connectionStatus === 'connected' && !hasOtherPlayer ? 'Esperando a otro jugador' : ''
   const sessionBusy = connectionStatus === 'connecting' || connectionStatus === 'joining'
 
   useBackgroundMusic(phase !== 'intro')
@@ -1800,17 +1784,11 @@ export default function App() {
       <div className="danger-vignette" style={{ opacity: active ? 0.24 : 0.42 }} />
       {isMobile && <MobileControls active={active} mobileControlsRef={mobileControlsRef} />}
 
-      <div className="hud">
-        <div className="hud-chip">{roomPresenceText}</div>
-        <div className="hud-chip">Sala multijugador: {roomCode || '--'}</div>
-        <div className="hud-chip">
-          Sala: {roomKey === 'main' ? 'Habitación grande' : 'Habitación secreta'}
+      {roomPresenceText ? (
+        <div className="hud">
+          <div className="hud-chip">{roomPresenceText}</div>
         </div>
-        <div className="hud-chip">{isMobile ? 'Mover: joystick' : 'Mover: W A S D'}</div>
-        <div className="hud-chip">{isMobile ? 'Mirar: arrastra pantalla' : 'Correr: Shift'}</div>
-        <div className="hud-chip">Jugadores: {roomPlayers.length || 1}/2</div>
-        <div className="hud-chip">Cruza la puerta brillante</div>
-      </div>
+      ) : null}
 
       <RoomMinimap
         players={roomPlayers}

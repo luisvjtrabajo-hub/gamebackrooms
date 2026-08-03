@@ -97,14 +97,14 @@ canvas {
   position: absolute;
   right: 20px;
   bottom: 20px;
-  width: 184px;
-  height: 184px;
-  padding: 8px;
+  width: 152px;
+  height: 152px;
+  padding: 6px;
   border-radius: 22px;
   z-index: 3;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 0;
 }
 
 .minimap {
@@ -485,8 +485,8 @@ canvas {
   }
 
   .minimap-shell {
-    width: 146px;
-    height: 146px;
+    width: 128px;
+    height: 128px;
     right: 12px;
     bottom: 12px;
   }
