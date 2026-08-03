@@ -22,6 +22,7 @@ const PLAYER_SKIN_ASSET_URL = new URL(
   '../poppy_playtime_chapter_5__lewis-transformed.glb',
   import.meta.url,
 ).href
+const PLAYER_SKIN_SCALE = 0.042
 const NAVIGATION_HEIGHT = 1
 const MULTIPLAYER_API_URL =
   `${import.meta.env.VITE_API_URL ?? ''}`.trim() || 'https://gamebackroomsapi.onrender.com'
@@ -759,7 +760,7 @@ function LewisPlayerModel() {
   const { nodes, materials } = useGraph(clone)
 
   if (!nodes?._rootJoint || !nodes?.Object_168?.geometry || !nodes?.Object_168?.skeleton) {
-    return <primitive object={clone} rotation={[-Math.PI / 2, 0, 0]} scale={0.075} />
+    return <primitive object={clone} rotation={[-Math.PI / 2, 0, 0]} scale={PLAYER_SKIN_SCALE} />
   }
 
   return (
@@ -772,7 +773,7 @@ function LewisPlayerModel() {
         material={materials.HazmatSuitMat ?? nodes.Object_168.material}
         skeleton={nodes.Object_168.skeleton}
         rotation={[-Math.PI / 2, 0, 0]}
-        scale={0.075}
+        scale={PLAYER_SKIN_SCALE}
       />
     </group>
   )
