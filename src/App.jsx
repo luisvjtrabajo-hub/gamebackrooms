@@ -764,7 +764,7 @@ function LewisPlayerModel() {
   }
 
   return (
-    <group dispose={null}>
+    <group dispose={null} rotation={[-Math.PI / 2, 0, 0]} scale={PLAYER_SKIN_SCALE}>
       <primitive object={nodes._rootJoint} />
       <skinnedMesh
         castShadow
@@ -772,8 +772,6 @@ function LewisPlayerModel() {
         geometry={nodes.Object_168.geometry}
         material={materials.HazmatSuitMat ?? nodes.Object_168.material}
         skeleton={nodes.Object_168.skeleton}
-        rotation={[-Math.PI / 2, 0, 0]}
-        scale={PLAYER_SKIN_SCALE}
       />
     </group>
   )
