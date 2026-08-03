@@ -795,15 +795,16 @@ function MultiplayerMarker({ player, isLocal }) {
     const previewRoot = new THREE.Group()
     const previewScene = cloneSkeleton(gltf.scene)
     previewScene.rotation.x = -Math.PI / 2
+    previewScene.rotation.z = Math.PI / 2
     previewRoot.add(previewScene)
     previewRoot.updateWorldMatrix(true, true)
 
     const box = new THREE.Box3().setFromObject(previewRoot)
     const size = box.getSize(new THREE.Vector3())
     const center = box.getCenter(new THREE.Vector3())
-    const desiredHeight = 1.38
-    const desiredWidth = 0.72
-    const desiredDepth = 0.58
+    const desiredHeight = 1.26
+    const desiredWidth = 0.56
+    const desiredDepth = 0.46
     const scale = Math.min(
       desiredHeight / Math.max(size.y, 0.1),
       desiredWidth / Math.max(size.x, 0.1),
@@ -813,7 +814,7 @@ function MultiplayerMarker({ player, isLocal }) {
     return {
       scale,
       offset: [-center.x * scale, -box.min.y * scale, -center.z * scale],
-      rotation: [-Math.PI / 2, 0, 0],
+      rotation: [-Math.PI / 2, 0, Math.PI / 2],
     }
   }, [gltf.scene])
 
