@@ -1,6 +1,7 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { Clone, PointerLockControls, useGLTF } from '@react-three/drei'
+import { io } from 'socket.io-client'
 import * as THREE from 'three'
 
 const PLAYER_HEIGHT = 1.65
@@ -17,6 +18,7 @@ const SECOND_ROOM_ASSET_URL = new URL(
 const MONSTER_ASSET_URL = new URL('../backrooms_monster.glb', import.meta.url).href
 const SECOND_MONSTER_ASSET_URL = new URL('../captain_clark_backrooms.glb', import.meta.url).href
 const NAVIGATION_HEIGHT = 1
+const MULTIPLAYER_API_URL = `${import.meta.env.VITE_API_URL ?? ''}`.trim()
 const preparedRoomCache = new Map()
 const sceneTemplateCache = new Map()
 const monsterTemplateCache = new Map()
@@ -24,6 +26,24 @@ const monsterTemplateCache = new Map()
 useGLTF.preload(ROOM_ASSET_URL)
 useGLTF.preload(MONSTER_ASSET_URL)
 useGLTF.preload(SECOND_MONSTER_ASSET_URL)
+
+function getRequestedRoomCode() {
+  if (typeof window === 'undefined') {
+    return ''
+  }
+
+  return new URLSearchParams(window.location.search).get('room')?.trim().toUpperCase() ?? ''
+}
+
+function syncRoomCodeInUrl(roomCode) {
+  if (typeof window === 'undefined' || !roomCode) {
+    return
+  }
+
+  const url = new URL(window.location.href)
+  url.searchParams.set('room', roomCode)
+  window.history.replaceState({}, '', url)
+}
 
 function useIsMobileDevice() {
   const [isMobile, setIsMobile] = useState(() => {
@@ -717,6 +737,40 @@ function MonsterChaser({
   )
 }
 
+function MultiplayerMarkers({ active, players, localPlayerId, roomKey }) {
+  const visiblePlayers = useMemo(
+    () =>
+      (players ?? []).filter(
+        (player) =>
+          player?.position &&
+          player.roomKey === roomKey &&
+          (player.phase === 'playing' || player.id === localPlayerId),
+      ),
+    [localPlayerId, players, roomKey],
+  )
+
+  if (!active || visiblePlayers.length === 0) {
+    return null
+  }
+
+  return visiblePlayers.map((player) => {
+    const color = player.id === localPlayerId ? '#79fff7' : '#ff6fae'
+
+    return (
+      <group key={player.id} position={[player.position.x, 0, player.position.z]}>
+        <mesh position={[0, 0.05, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+          <ringGeometry args={[0.18, 0.33, 28]} />
+          <meshBasicMaterial color={color} transparent opacity={0.95} />
+        </mesh>
+        <mesh position={[0, 0.12, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+          <circleGeometry args={[0.08, 20]} />
+          <meshBasicMaterial color={color} transparent opacity={0.85} />
+        </mesh>
+      </group>
+    )
+  })
+}
+
 function PlayerController({
   active,
   roomData,
@@ -725,6 +779,7 @@ function PlayerController({
   initialLookTarget,
   isMobile,
   mobileControlsRef,
+  onPlayerStateChange,
 }) {
   const { camera } = useThree()
   const keys = useRef({})
@@ -735,6 +790,7 @@ function PlayerController({
   const lookTarget = useMemo(() => new THREE.Vector3(), [])
   const yawRef = useRef(0)
   const pitchRef = useRef(0)
+  const lastReportRef = useRef(0)
 
   useEffect(() => {
     playerPositionRef.current.set(roomData.spawn.x, roomData.spawn.y, roomData.spawn.z)
@@ -746,6 +802,18 @@ function PlayerController({
     if (isMobile) {
       camera.rotation.order = 'YXZ'
     }
+    onPlayerStateChange?.({
+      position: {
+        x: roomData.spawn.x,
+        y: roomData.spawn.y,
+        z: roomData.spawn.z,
+      },
+      rotation: {
+        x: camera.rotation.x,
+        y: camera.rotation.y,
+        z: camera.rotation.z,
+      },
+    })
   }, [camera, initialLookTarget.x, initialLookTarget.z, isMobile, lookTarget, roomData, runId])
 
   useEffect(() => {
@@ -851,12 +919,41 @@ function PlayerController({
     camera.position.z = nextPosition.z
     camera.position.y =
       PLAYER_HEIGHT + Math.sin(walkingRef.current) * Math.min(0.05, movementAmount * 0.22)
+
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now()
+    if (now - lastReportRef.current >= 110) {
+      lastReportRef.current = now
+      onPlayerStateChange?.({
+        position: {
+          x: nextPosition.x,
+          y: nextPosition.y,
+          z: nextPosition.z,
+        },
+        rotation: {
+          x: camera.rotation.x,
+          y: camera.rotation.y,
+          z: camera.rotation.z,
+        },
+      })
+    }
   })
 
   return isMobile ? null : <PointerLockControls selector="#game-shell" />
 }
 
-function BackroomsScene({ active, onCaught, onTraverse, roomKey, runId, isMobile, mobileControlsRef }) {
+function BackroomsScene({
+  active,
+  onCaught,
+  onTraverse,
+  roomKey,
+  runId,
+  isMobile,
+  mobileControlsRef,
+  players,
+  localPlayerId,
+  onPlayerStateChange,
+  onBoundsChange,
+}) {
   const roomPreset =
     roomKey === 'main'
       ? {
@@ -933,6 +1030,10 @@ function BackroomsScene({ active, onCaught, onTraverse, roomKey, runId, isMobile
     camera.far = Math.max(100, roomData.visualRadius * 3)
     camera.updateProjectionMatrix()
   }, [camera, roomData.visualRadius])
+
+  useEffect(() => {
+    onBoundsChange?.(roomData.bounds)
+  }, [onBoundsChange, roomData.bounds])
 
   useFrame(({ clock }) => {
     if (!active) {
@@ -1022,6 +1123,12 @@ function BackroomsScene({ active, onCaught, onTraverse, roomKey, runId, isMobile
           color={roomPreset.portalColor}
         />
       </Suspense>
+      <MultiplayerMarkers
+        active={active}
+        players={players}
+        localPlayerId={localPlayerId}
+        roomKey={roomKey}
+      />
 
       <PlayerController
         active={active}
@@ -1031,6 +1138,7 @@ function BackroomsScene({ active, onCaught, onTraverse, roomKey, runId, isMobile
         initialLookTarget={initialLookTarget}
         isMobile={isMobile}
         mobileControlsRef={mobileControlsRef}
+        onPlayerStateChange={onPlayerStateChange}
       />
     </>
   )
@@ -1179,10 +1287,202 @@ function MobileControls({ active, mobileControlsRef }) {
   )
 }
 
+function useMultiplayerRoom({ phase, roomKey, runId, localPlayerState }) {
+  const [room, setRoom] = useState(null)
+  const [localPlayerId, setLocalPlayerId] = useState('')
+  const [connectionStatus, setConnectionStatus] = useState(() =>
+    MULTIPLAYER_API_URL ? 'connecting' : 'offline',
+  )
+  const [connectionError, setConnectionError] = useState('')
+  const roomCodeRef = useRef(getRequestedRoomCode())
+  const socketRef = useRef(null)
+  const playerNameRef = useRef(`Jugador ${Math.floor(100 + Math.random() * 900)}`)
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !MULTIPLAYER_API_URL) {
+      return undefined
+    }
+
+    const socket = io(MULTIPLAYER_API_URL, {
+      transports: ['websocket', 'polling'],
+    })
+    socketRef.current = socket
+
+    const handleConnect = () => {
+      setConnectionStatus('joining')
+      setConnectionError('')
+      const requestedRoomCode = getRequestedRoomCode()
+      roomCodeRef.current = requestedRoomCode
+      const payload = { playerName: playerNameRef.current }
+
+      if (requestedRoomCode) {
+        socket.emit('room:join', { ...payload, roomCode: requestedRoomCode }, (response) => {
+          if (!response?.ok && response?.error) {
+            setConnectionStatus('error')
+          }
+        })
+        return
+      }
+
+      socket.emit('room:create', payload, (response) => {
+        if (!response?.ok && response?.error) {
+          setConnectionStatus('error')
+        }
+      })
+    }
+
+    const handleAssigned = ({ playerId, roomCode }) => {
+      setLocalPlayerId(playerId)
+      roomCodeRef.current = roomCode
+      syncRoomCodeInUrl(roomCode)
+    }
+
+    const handleRoomState = (nextRoom) => {
+      setRoom(nextRoom)
+      setConnectionStatus('connected')
+      setConnectionError('')
+    }
+
+    const handleRoomError = ({ message }) => {
+      setConnectionStatus('error')
+      setConnectionError(message ?? 'No se pudo conectar a la sala.')
+    }
+
+    const handleDisconnect = () => {
+      setConnectionStatus('disconnected')
+    }
+
+    const handleConnectError = () => {
+      setConnectionStatus('error')
+      setConnectionError('No se pudo conectar con la API multijugador.')
+    }
+
+    socket.on('connect', handleConnect)
+    socket.on('player:assigned', handleAssigned)
+    socket.on('room:state', handleRoomState)
+    socket.on('room:error', handleRoomError)
+    socket.on('disconnect', handleDisconnect)
+    socket.on('connect_error', handleConnectError)
+
+    return () => {
+      socket.emit('room:leave')
+      socket.off('connect', handleConnect)
+      socket.off('player:assigned', handleAssigned)
+      socket.off('room:state', handleRoomState)
+      socket.off('room:error', handleRoomError)
+      socket.off('disconnect', handleDisconnect)
+      socket.off('connect_error', handleConnectError)
+      socket.disconnect()
+      socketRef.current = null
+    }
+  }, [])
+
+  useEffect(() => {
+    const socket = socketRef.current
+    if (!socket || connectionStatus !== 'connected') {
+      return
+    }
+
+    socket.emit('player:update', {
+      phase,
+      roomKey,
+      position: localPlayerState.position,
+      rotation: localPlayerState.rotation,
+    })
+  }, [connectionStatus, localPlayerState.position, localPlayerState.rotation, phase, roomKey])
+
+  useEffect(() => {
+    const socket = socketRef.current
+    if (!socket || connectionStatus !== 'connected' || !localPlayerId || room?.hostPlayerId !== localPlayerId) {
+      return
+    }
+
+    socket.emit('room:update', {
+      phase: phase === 'intro' ? 'lobby' : phase,
+      roomKey,
+      runId,
+    })
+  }, [connectionStatus, localPlayerId, phase, room?.hostPlayerId, roomKey, runId])
+
+  return {
+    room,
+    localPlayerId,
+    roomCode: room?.code ?? roomCodeRef.current,
+    connectionStatus,
+    connectionError,
+  }
+}
+
+function RoomMinimap({ players, localPlayerId, roomKey, bounds, roomCode, connectionStatus }) {
+  const visiblePlayers = (players ?? []).filter(
+    (player) => player?.position && player.roomKey === roomKey,
+  )
+  const spanX = Math.max((bounds?.maxX ?? 10) - (bounds?.minX ?? -10), 1)
+  const spanZ = Math.max((bounds?.maxZ ?? 10) - (bounds?.minZ ?? -10), 1)
+
+  const points = visiblePlayers.map((player) => {
+    const normalizedX = ((player.position.x - (bounds?.minX ?? -10)) / spanX) * 100
+    const normalizedY = 100 - ((player.position.z - (bounds?.minZ ?? -10)) / spanZ) * 100
+
+    return {
+      id: player.id,
+      x: THREE.MathUtils.clamp(normalizedX, 6, 94),
+      y: THREE.MathUtils.clamp(normalizedY, 6, 94),
+      color: player.id === localPlayerId ? '#79fff7' : '#ff6fae',
+      isLocal: player.id === localPlayerId,
+    }
+  })
+
+  return (
+    <div className="minimap-shell">
+      <div className="minimap-header">
+        <span className="minimap-title">Sala {roomCode || '--'}</span>
+        <span className="minimap-status">
+          {connectionStatus === 'connected' ? `${visiblePlayers.length}/2` : '...'}
+        </span>
+      </div>
+      <svg className="minimap" viewBox="0 0 100 100" aria-label="Posicion de jugadores">
+        <rect x="2" y="2" width="96" height="96" rx="14" fill="rgba(12, 12, 8, 0.72)" />
+        {points.map((point) => (
+          <circle
+            key={point.id}
+            cx={point.x}
+            cy={point.y}
+            r={point.isLocal ? 4.8 : 4.2}
+            fill={point.color}
+            stroke="rgba(255, 248, 213, 0.9)"
+            strokeWidth="1.2"
+          />
+        ))}
+      </svg>
+      <div className="minimap-legend">
+        <span className="minimap-legend-item">
+          <span className="minimap-dot minimap-dot-self" />
+          Tú
+        </span>
+        <span className="minimap-legend-item">
+          <span className="minimap-dot minimap-dot-other" />
+          Otro jugador
+        </span>
+      </div>
+    </div>
+  )
+}
+
 export default function App() {
   const [phase, setPhase] = useState('intro')
   const [runId, setRunId] = useState(0)
   const [roomKey, setRoomKey] = useState('main')
+  const [roomBounds, setRoomBounds] = useState({
+    minX: -12,
+    maxX: 12,
+    minZ: -12,
+    maxZ: 12,
+  })
+  const [localPlayerState, setLocalPlayerState] = useState({
+    position: { x: 0, y: PLAYER_HEIGHT, z: 0 },
+    rotation: { x: 0, y: 0, z: 0 },
+  })
   const isMobile = useIsMobileDevice()
   const mobileControlsRef = useRef({
     moveX: 0,
@@ -1192,6 +1492,37 @@ export default function App() {
     running: false,
   })
   const active = phase === 'playing'
+  const { room, localPlayerId, roomCode, connectionStatus, connectionError } = useMultiplayerRoom({
+    phase,
+    roomKey,
+    runId,
+    localPlayerState,
+  })
+  const roomPlayers = useMemo(() => {
+    const players = room?.players ?? []
+
+    return players.map((player) =>
+      player.id === localPlayerId
+        ? {
+            ...player,
+            position: localPlayerState.position,
+            rotation: localPlayerState.rotation,
+            roomKey,
+            phase,
+          }
+        : player,
+    )
+  }, [localPlayerId, localPlayerState.position, localPlayerState.rotation, phase, room?.players, roomKey])
+  const hasOtherPlayer = roomPlayers.some((player) => player.id !== localPlayerId)
+  const roomPresenceText = !MULTIPLAYER_API_URL
+    ? 'API multijugador no configurada'
+    : connectionStatus === 'connected'
+      ? hasOtherPlayer
+        ? 'Otro jugador conectado'
+        : 'Esperando otro jugador'
+      : connectionStatus === 'error'
+        ? connectionError || 'No se pudo unir a la sala'
+        : 'Conectando sala...'
 
   useBackgroundMusic(phase !== 'intro')
 
@@ -1227,6 +1558,10 @@ export default function App() {
           runId={runId}
           isMobile={isMobile}
           mobileControlsRef={mobileControlsRef}
+          players={roomPlayers}
+          localPlayerId={localPlayerId}
+          onBoundsChange={setRoomBounds}
+          onPlayerStateChange={setLocalPlayerState}
           onCaught={() => setPhase('lost')}
           onTraverse={(nextRoom) => {
             setRoomKey(nextRoom)
@@ -1240,14 +1575,25 @@ export default function App() {
       {isMobile && <MobileControls active={active} mobileControlsRef={mobileControlsRef} />}
 
       <div className="hud">
+        <div className="hud-chip">{roomPresenceText}</div>
+        <div className="hud-chip">Sala multijugador: {roomCode || '--'}</div>
         <div className="hud-chip">
           Sala: {roomKey === 'main' ? 'Habitación grande' : 'Habitación secreta'}
         </div>
         <div className="hud-chip">{isMobile ? 'Mover: joystick' : 'Mover: W A S D'}</div>
         <div className="hud-chip">{isMobile ? 'Mirar: arrastra pantalla' : 'Correr: Shift'}</div>
-        <div className="hud-chip">Criaturas: 2</div>
+        <div className="hud-chip">Jugadores: {roomPlayers.length || 1}/2</div>
         <div className="hud-chip">Cruza la puerta brillante</div>
       </div>
+
+      <RoomMinimap
+        players={roomPlayers}
+        localPlayerId={localPlayerId}
+        roomKey={roomKey}
+        bounds={roomBounds}
+        roomCode={roomCode}
+        connectionStatus={connectionStatus}
+      />
 
       {!isMobile && <div className="crosshair" />}
 

@@ -102,11 +102,55 @@ canvas {
   padding: 8px;
   border-radius: 22px;
   z-index: 3;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .minimap {
   width: 100%;
   height: 100%;
+  flex: 1;
+}
+
+.minimap-header,
+.minimap-legend {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.minimap-title,
+.minimap-status,
+.minimap-legend-item {
+  font-size: 11px;
+  color: rgba(255, 248, 213, 0.82);
+}
+
+.minimap-status {
+  color: #79fff7;
+}
+
+.minimap-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.minimap-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.minimap-dot-self {
+  background: #79fff7;
+}
+
+.minimap-dot-other {
+  background: #ff6fae;
 }
 
 .crosshair {
@@ -328,7 +372,6 @@ canvas {
   .hud,
   .overlay-card,
   .hud-chip,
-  .mobile-look-zone,
   .mobile-pad-ring {
     backdrop-filter: blur(4px);
   }
