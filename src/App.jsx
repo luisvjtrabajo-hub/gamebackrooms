@@ -803,8 +803,14 @@ function MultiplayerMarker({ player, isLocal }) {
     const box = new THREE.Box3().setFromObject(previewRoot)
     const size = box.getSize(new THREE.Vector3())
     const center = box.getCenter(new THREE.Vector3())
-    const desiredHeight = 1.72
-    const scale = desiredHeight / Math.max(size.y, 0.1)
+    const desiredHeight = 1.5
+    const desiredWidth = 0.82
+    const desiredDepth = 0.72
+    const scale = Math.min(
+      desiredHeight / Math.max(size.y, 0.1),
+      desiredWidth / Math.max(size.x, 0.1),
+      desiredDepth / Math.max(size.z, 0.1),
+    )
 
     return {
       scale,
@@ -837,7 +843,7 @@ function MultiplayerMarker({ player, isLocal }) {
       currentRotationY.current = targetRotationY
       groupRef.current.position.set(
         targetPosition.x,
-        Math.sin(clock.getElapsedTime() * 3.2 + yBobOffset.current) * 0.04 + 0.01,
+        Math.sin(clock.getElapsedTime() * 2.8 + yBobOffset.current) * 0.012,
         targetPosition.z,
       )
       groupRef.current.rotation.y = currentRotationY.current
@@ -852,7 +858,7 @@ function MultiplayerMarker({ player, isLocal }) {
     )
     groupRef.current.position.set(
       currentPosition.x,
-      Math.sin(clock.getElapsedTime() * 3.2 + yBobOffset.current) * 0.04 + 0.01,
+      Math.sin(clock.getElapsedTime() * 2.8 + yBobOffset.current) * 0.012,
       currentPosition.z,
     )
     groupRef.current.rotation.y = currentRotationY.current
