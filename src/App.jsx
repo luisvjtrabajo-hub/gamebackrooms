@@ -30,6 +30,7 @@ const monsterTemplateCache = new Map()
 const playerTemplateCache = new Map()
 
 useGLTF.preload(ROOM_ASSET_URL)
+useGLTF.preload(SECOND_ROOM_ASSET_URL)
 useGLTF.preload(MONSTER_ASSET_URL)
 useGLTF.preload(SECOND_MONSTER_ASSET_URL)
 useGLTF.preload(PLAYER_SKIN_ASSET_URL)
@@ -1246,12 +1247,14 @@ function BackroomsScene({
           color={roomPreset.portalColor}
         />
       </Suspense>
-      <MultiplayerMarkers
-        active={active}
-        players={players}
-        localPlayerId={localPlayerId}
-        roomKey={roomKey}
-      />
+      <Suspense fallback={null}>
+        <MultiplayerMarkers
+          active={active}
+          players={players}
+          localPlayerId={localPlayerId}
+          roomKey={roomKey}
+        />
+      </Suspense>
 
       <PlayerController
         active={active}
