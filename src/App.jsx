@@ -18,7 +18,8 @@ const SECOND_ROOM_ASSET_URL = new URL(
 const MONSTER_ASSET_URL = new URL('../backrooms_monster.glb', import.meta.url).href
 const SECOND_MONSTER_ASSET_URL = new URL('../captain_clark_backrooms.glb', import.meta.url).href
 const NAVIGATION_HEIGHT = 1
-const MULTIPLAYER_API_URL = `${import.meta.env.VITE_API_URL ?? ''}`.trim()
+const MULTIPLAYER_API_URL =
+  `${import.meta.env.VITE_API_URL ?? ''}`.trim() || 'https://gamebackroomsapi.onrender.com'
 const preparedRoomCache = new Map()
 const sceneTemplateCache = new Map()
 const monsterTemplateCache = new Map()
@@ -32,7 +33,15 @@ function getRequestedRoomCode() {
     return ''
   }
 
-  return new URLSearchParams(window.location.search).get('room')?.trim().toUpperCase() ?? ''
+  return normalizeRoomCode(new URLSearchParams(window.location.search).get('room'))
+}
+
+function normalizeRoomCode(value) {
+  return `${value ?? ''}`
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '')
+    .slice(0, 6)
 }
 
 function syncRoomCodeInUrl(roomCode) {
@@ -737,6 +746,63 @@ function MonsterChaser({
   )
 }
 
+function MultiplayerMarker({ player, isLocal }) {
+  const groupRef = useRef()
+  const targetPosition = useMemo(() => new THREE.Vector3(), [])
+  const currentPosition = useMemo(() => new THREE.Vector3(), [])
+  const yBobOffset = useRef(Math.random() * Math.PI * 2)
+
+  useEffect(() => {
+    targetPosition.set(player.position.x, 0, player.position.z)
+    if (!groupRef.current) {
+      currentPosition.copy(targetPosition)
+      return
+    }
+
+    if (isLocal) {
+      currentPosition.copy(targetPosition)
+      groupRef.current.position.copy(targetPosition)
+    }
+  }, [currentPosition, isLocal, player.position.x, player.position.z, targetPosition])
+
+  useFrame(({ clock }, delta) => {
+    if (!groupRef.current) {
+      return
+    }
+
+    if (isLocal) {
+      groupRef.current.position.set(
+        targetPosition.x,
+        Math.sin(clock.getElapsedTime() * 3.2 + yBobOffset.current) * 0.04 + 0.01,
+        targetPosition.z,
+      )
+      return
+    }
+
+    currentPosition.lerp(targetPosition, THREE.MathUtils.clamp(delta * 9, 0.08, 0.35))
+    groupRef.current.position.set(
+      currentPosition.x,
+      Math.sin(clock.getElapsedTime() * 3.2 + yBobOffset.current) * 0.04 + 0.01,
+      currentPosition.z,
+    )
+  })
+
+  const color = isLocal ? '#79fff7' : '#ff6fae'
+
+  return (
+    <group ref={groupRef}>
+      <mesh position={[0, 0.05, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <ringGeometry args={[0.18, 0.33, 28]} />
+        <meshBasicMaterial color={color} transparent opacity={0.95} />
+      </mesh>
+      <mesh position={[0, 0.12, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <circleGeometry args={[0.08, 20]} />
+        <meshBasicMaterial color={color} transparent opacity={0.85} />
+      </mesh>
+    </group>
+  )
+}
+
 function MultiplayerMarkers({ active, players, localPlayerId, roomKey }) {
   const visiblePlayers = useMemo(
     () =>
@@ -753,22 +819,13 @@ function MultiplayerMarkers({ active, players, localPlayerId, roomKey }) {
     return null
   }
 
-  return visiblePlayers.map((player) => {
-    const color = player.id === localPlayerId ? '#79fff7' : '#ff6fae'
-
-    return (
-      <group key={player.id} position={[player.position.x, 0, player.position.z]}>
-        <mesh position={[0, 0.05, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-          <ringGeometry args={[0.18, 0.33, 28]} />
-          <meshBasicMaterial color={color} transparent opacity={0.95} />
-        </mesh>
-        <mesh position={[0, 0.12, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-          <circleGeometry args={[0.08, 20]} />
-          <meshBasicMaterial color={color} transparent opacity={0.85} />
-        </mesh>
-      </group>
-    )
-  })
+  return visiblePlayers.map((player) => (
+    <MultiplayerMarker
+      key={player.id}
+      player={player}
+      isLocal={player.id === localPlayerId}
+    />
+  ))
 }
 
 function PlayerController({
@@ -921,7 +978,7 @@ function PlayerController({
       PLAYER_HEIGHT + Math.sin(walkingRef.current) * Math.min(0.05, movementAmount * 0.22)
 
     const now = typeof performance !== 'undefined' ? performance.now() : Date.now()
-    if (now - lastReportRef.current >= 110) {
+    if (now - lastReportRef.current >= 55) {
       lastReportRef.current = now
       onPlayerStateChange?.({
         position: {
