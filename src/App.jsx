@@ -23,7 +23,7 @@ const PLAYER_SKIN_ASSET_URL = new URL(
   import.meta.url,
 ).href
 const PLAYER_SKIN_BASE_SCALE = 0.1
-const PLAYER_SKIN_WORLD_SCALE = 0.42
+const PLAYER_SKIN_WORLD_SCALE = 0.28
 const NAVIGATION_HEIGHT = 1
 const MULTIPLAYER_API_URL =
   `${import.meta.env.VITE_API_URL ?? ''}`.trim() || 'https://gamebackroomsapi.onrender.com'
