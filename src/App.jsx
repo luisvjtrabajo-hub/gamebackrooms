@@ -3,6 +3,7 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { Clone, PointerLockControls, useGLTF } from '@react-three/drei'
 import { io } from 'socket.io-client'
 import * as THREE from 'three'
+import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js'
 
 const PLAYER_HEIGHT = 1.65
 const PLAYER_PADDING = 1.8
@@ -187,7 +188,7 @@ function getMonsterTemplate(assetUrl, scene) {
 }
 
 function createPlayerTemplate(scene) {
-  const clone = scene.clone(true)
+  const clone = cloneSkeleton(scene)
   clone.traverse((child) => {
     if (!child.isMesh) {
       return
@@ -789,13 +790,10 @@ function MultiplayerMarker({ player, isLocal }) {
   const currentPosition = useMemo(() => new THREE.Vector3(), [])
   const yBobOffset = useRef(Math.random() * Math.PI * 2)
   const currentRotationY = useRef(player.rotation?.y ?? 0)
-  const template = useMemo(
-    () => getPlayerTemplate(PLAYER_SKIN_ASSET_URL, gltf.scene),
-    [gltf.scene],
-  )
+  const template = useMemo(() => createPlayerTemplate(gltf.scene), [gltf.scene])
   const playerScale = useMemo(() => {
     const previewRoot = new THREE.Group()
-    const previewScene = gltf.scene.clone(true)
+    const previewScene = cloneSkeleton(gltf.scene)
     previewScene.rotation.x = -Math.PI / 2
     previewRoot.add(previewScene)
     previewRoot.updateWorldMatrix(true, true)
@@ -803,9 +801,9 @@ function MultiplayerMarker({ player, isLocal }) {
     const box = new THREE.Box3().setFromObject(previewRoot)
     const size = box.getSize(new THREE.Vector3())
     const center = box.getCenter(new THREE.Vector3())
-    const desiredHeight = 1.5
-    const desiredWidth = 0.82
-    const desiredDepth = 0.72
+    const desiredHeight = 1.38
+    const desiredWidth = 0.72
+    const desiredDepth = 0.58
     const scale = Math.min(
       desiredHeight / Math.max(size.y, 0.1),
       desiredWidth / Math.max(size.x, 0.1),
@@ -843,7 +841,7 @@ function MultiplayerMarker({ player, isLocal }) {
       currentRotationY.current = targetRotationY
       groupRef.current.position.set(
         targetPosition.x,
-        Math.sin(clock.getElapsedTime() * 2.8 + yBobOffset.current) * 0.012,
+        Math.sin(clock.getElapsedTime() * 2.6 + yBobOffset.current) * 0.006,
         targetPosition.z,
       )
       groupRef.current.rotation.y = currentRotationY.current
@@ -858,7 +856,7 @@ function MultiplayerMarker({ player, isLocal }) {
     )
     groupRef.current.position.set(
       currentPosition.x,
-      Math.sin(clock.getElapsedTime() * 2.8 + yBobOffset.current) * 0.012,
+      Math.sin(clock.getElapsedTime() * 2.6 + yBobOffset.current) * 0.006,
       currentPosition.z,
     )
     groupRef.current.rotation.y = currentRotationY.current
@@ -869,7 +867,7 @@ function MultiplayerMarker({ player, isLocal }) {
   return (
     <group ref={groupRef}>
       {!isLocal && (
-        <Clone
+        <primitive
           object={template}
           position={playerScale.offset}
           rotation={playerScale.rotation}
