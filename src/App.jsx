@@ -17,12 +17,17 @@ const SECOND_ROOM_ASSET_URL = new URL(
 ).href
 const MONSTER_ASSET_URL = new URL('../backrooms_monster.glb', import.meta.url).href
 const SECOND_MONSTER_ASSET_URL = new URL('../captain_clark_backrooms.glb', import.meta.url).href
+const PLAYER_SKIN_ASSET_URL = new URL(
+  '../poppy_playtime_chapter_5__lewis.glb',
+  import.meta.url,
+).href
 const NAVIGATION_HEIGHT = 1
 const MULTIPLAYER_API_URL =
   `${import.meta.env.VITE_API_URL ?? ''}`.trim() || 'https://gamebackroomsapi.onrender.com'
 const preparedRoomCache = new Map()
 const sceneTemplateCache = new Map()
 const monsterTemplateCache = new Map()
+const playerTemplateCache = new Map()
 
 useGLTF.preload(ROOM_ASSET_URL)
 useGLTF.preload(MONSTER_ASSET_URL)
@@ -177,6 +182,35 @@ function getMonsterTemplate(assetUrl, scene) {
   }
 
   return monsterTemplateCache.get(assetUrl)
+}
+
+function createPlayerTemplate(scene) {
+  const clone = scene.clone(true)
+  clone.traverse((child) => {
+    if (!child.isMesh) {
+      return
+    }
+
+    child.castShadow = true
+    child.receiveShadow = true
+    const materials = Array.isArray(child.material) ? child.material : [child.material]
+    const nextMaterials = materials.map((material) => {
+      const nextMaterial = material.clone()
+      nextMaterial.roughness = Math.min(nextMaterial.roughness ?? 0.75, 0.88)
+      nextMaterial.metalness = Math.min(nextMaterial.metalness ?? 0.08, 0.12)
+      return nextMaterial
+    })
+    child.material = nextMaterials.length === 1 ? nextMaterials[0] : nextMaterials
+  })
+  return clone
+}
+
+function getPlayerTemplate(assetUrl, scene) {
+  if (!playerTemplateCache.has(assetUrl)) {
+    playerTemplateCache.set(assetUrl, createPlayerTemplate(scene))
+  }
+
+  return playerTemplateCache.get(assetUrl)
 }
 
 function resolveRoomPoint(bounds, hint) {
@@ -747,10 +781,28 @@ function MonsterChaser({
 }
 
 function MultiplayerMarker({ player, isLocal }) {
+  const gltf = useGLTF(PLAYER_SKIN_ASSET_URL)
   const groupRef = useRef()
   const targetPosition = useMemo(() => new THREE.Vector3(), [])
   const currentPosition = useMemo(() => new THREE.Vector3(), [])
   const yBobOffset = useRef(Math.random() * Math.PI * 2)
+  const currentRotationY = useRef(player.rotation?.y ?? 0)
+  const template = useMemo(
+    () => getPlayerTemplate(PLAYER_SKIN_ASSET_URL, gltf.scene),
+    [gltf.scene],
+  )
+  const playerScale = useMemo(() => {
+    const box = new THREE.Box3().setFromObject(gltf.scene)
+    const size = box.getSize(new THREE.Vector3())
+    const center = box.getCenter(new THREE.Vector3())
+    const desiredHeight = 1.72
+    const scale = desiredHeight / Math.max(size.y, 0.1)
+
+    return {
+      scale,
+      offset: [-center.x * scale, -box.min.y * scale, -center.z * scale],
+    }
+  }, [gltf.scene])
 
   useEffect(() => {
     targetPosition.set(player.position.x, 0, player.position.z)
@@ -770,27 +822,40 @@ function MultiplayerMarker({ player, isLocal }) {
       return
     }
 
+    const targetRotationY = player.rotation?.y ?? 0
+
     if (isLocal) {
+      currentRotationY.current = targetRotationY
       groupRef.current.position.set(
         targetPosition.x,
         Math.sin(clock.getElapsedTime() * 3.2 + yBobOffset.current) * 0.04 + 0.01,
         targetPosition.z,
       )
+      groupRef.current.rotation.y = currentRotationY.current
       return
     }
 
     currentPosition.lerp(targetPosition, THREE.MathUtils.clamp(delta * 9, 0.08, 0.35))
+    currentRotationY.current = THREE.MathUtils.lerp(
+      currentRotationY.current,
+      targetRotationY,
+      THREE.MathUtils.clamp(delta * 10, 0.08, 0.35),
+    )
     groupRef.current.position.set(
       currentPosition.x,
       Math.sin(clock.getElapsedTime() * 3.2 + yBobOffset.current) * 0.04 + 0.01,
       currentPosition.z,
     )
+    groupRef.current.rotation.y = currentRotationY.current
   })
 
   const color = isLocal ? '#79fff7' : '#ff6fae'
 
   return (
     <group ref={groupRef}>
+      {!isLocal && (
+        <Clone object={template} position={playerScale.offset} scale={playerScale.scale} />
+      )}
       <mesh position={[0, 0.05, 0]} rotation={[-Math.PI / 2, 0, 0]}>
         <ringGeometry args={[0.18, 0.33, 28]} />
         <meshBasicMaterial color={color} transparent opacity={0.95} />
