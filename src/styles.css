@@ -284,6 +284,57 @@ canvas {
   color: rgba(255, 249, 222, 0.88);
 }
 
+.session-status,
+.session-error {
+  margin: 16px 0 0;
+  font-size: 14px;
+}
+
+.session-status {
+  color: rgba(255, 248, 213, 0.84);
+}
+
+.session-error {
+  color: #ff9fbf;
+}
+
+.room-input-label {
+  display: block;
+  margin-top: 18px;
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(255, 248, 213, 0.7);
+}
+
+.room-input {
+  width: 100%;
+  margin-top: 10px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(246, 235, 153, 0.18);
+  background: rgba(9, 9, 6, 0.3);
+  color: #fff7be;
+  font-size: 16px;
+  text-transform: uppercase;
+  outline: none;
+}
+
+.room-input::placeholder {
+  color: rgba(255, 248, 213, 0.42);
+}
+
+.room-input:focus {
+  border-color: rgba(121, 255, 247, 0.42);
+  box-shadow: 0 0 0 3px rgba(121, 255, 247, 0.08);
+}
+
+.session-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 18px;
+}
+
 .instructions {
   margin: 18px 0 0;
   padding-left: 18px;
@@ -305,6 +356,24 @@ canvas {
   cursor: pointer;
   background: linear-gradient(135deg, #fff4b5 0%, #73fff4 100%);
   box-shadow: 0 16px 40px rgba(115, 255, 244, 0.26);
+}
+
+.session-actions .start-button {
+  width: 100%;
+  margin-top: 0;
+}
+
+.secondary-button {
+  background: rgba(255, 244, 181, 0.14);
+  color: #fff7be;
+  border: 1px solid rgba(246, 235, 153, 0.24);
+  box-shadow: none;
+}
+
+.start-button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+  transform: none;
 }
 
 .start-button:hover {
@@ -399,11 +468,17 @@ canvas {
   }
 
   .overlay-card p,
-  .instructions {
+  .instructions,
+  .session-status,
+  .session-error {
     font-size: 14px;
   }
 
   .start-button {
     width: 100%;
+  }
+
+  .session-actions {
+    flex-direction: column;
   }
 }

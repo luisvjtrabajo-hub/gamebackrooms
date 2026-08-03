@@ -1347,10 +1347,9 @@ function MobileControls({ active, mobileControlsRef }) {
 function useMultiplayerRoom({ phase, roomKey, runId, localPlayerState }) {
   const [room, setRoom] = useState(null)
   const [localPlayerId, setLocalPlayerId] = useState('')
-  const [connectionStatus, setConnectionStatus] = useState(() =>
-    MULTIPLAYER_API_URL ? 'connecting' : 'offline',
-  )
+  const [connectionStatus, setConnectionStatus] = useState('connecting')
   const [connectionError, setConnectionError] = useState('')
+  const [requestedRoomCode, setRequestedRoomCode] = useState(() => getRequestedRoomCode())
   const roomCodeRef = useRef(getRequestedRoomCode())
   const socketRef = useRef(null)
   const playerNameRef = useRef(`Jugador ${Math.floor(100 + Math.random() * 900)}`)
@@ -1366,31 +1365,14 @@ function useMultiplayerRoom({ phase, roomKey, runId, localPlayerState }) {
     socketRef.current = socket
 
     const handleConnect = () => {
-      setConnectionStatus('joining')
+      setConnectionStatus('ready')
       setConnectionError('')
-      const requestedRoomCode = getRequestedRoomCode()
-      roomCodeRef.current = requestedRoomCode
-      const payload = { playerName: playerNameRef.current }
-
-      if (requestedRoomCode) {
-        socket.emit('room:join', { ...payload, roomCode: requestedRoomCode }, (response) => {
-          if (!response?.ok && response?.error) {
-            setConnectionStatus('error')
-          }
-        })
-        return
-      }
-
-      socket.emit('room:create', payload, (response) => {
-        if (!response?.ok && response?.error) {
-          setConnectionStatus('error')
-        }
-      })
     }
 
     const handleAssigned = ({ playerId, roomCode }) => {
       setLocalPlayerId(playerId)
       roomCodeRef.current = roomCode
+      setRequestedRoomCode(roomCode)
       syncRoomCodeInUrl(roomCode)
     }
 
@@ -1400,8 +1382,50 @@ function useMultiplayerRoom({ phase, roomKey, runId, localPlayerState }) {
       setConnectionError('')
     }
 
+    const handlePlayerUpdated = (player) => {
+      setRoom((currentRoom) => {
+        if (!currentRoom) {
+          return currentRoom
+        }
+
+        return {
+          ...currentRoom,
+          players: currentRoom.players.map((currentPlayer) =>
+            currentPlayer.id === player.id ? { ...currentPlayer, ...player } : currentPlayer,
+          ),
+        }
+      })
+    }
+
+    const handlePlayerJoined = (player) => {
+      setRoom((currentRoom) => {
+        if (!currentRoom) {
+          return currentRoom
+        }
+
+        const players = currentRoom.players.filter((currentPlayer) => currentPlayer.id !== player.id)
+        return {
+          ...currentRoom,
+          players: [...players, player],
+        }
+      })
+    }
+
+    const handlePlayerLeft = ({ playerId }) => {
+      setRoom((currentRoom) => {
+        if (!currentRoom) {
+          return currentRoom
+        }
+
+        return {
+          ...currentRoom,
+          players: currentRoom.players.filter((player) => player.id !== playerId),
+        }
+      })
+    }
+
     const handleRoomError = ({ message }) => {
-      setConnectionStatus('error')
+      setConnectionStatus('ready')
       setConnectionError(message ?? 'No se pudo conectar a la sala.')
     }
 
@@ -1417,6 +1441,9 @@ function useMultiplayerRoom({ phase, roomKey, runId, localPlayerState }) {
     socket.on('connect', handleConnect)
     socket.on('player:assigned', handleAssigned)
     socket.on('room:state', handleRoomState)
+    socket.on('player:updated', handlePlayerUpdated)
+    socket.on('player:joined', handlePlayerJoined)
+    socket.on('player:left', handlePlayerLeft)
     socket.on('room:error', handleRoomError)
     socket.on('disconnect', handleDisconnect)
     socket.on('connect_error', handleConnectError)
@@ -1426,6 +1453,9 @@ function useMultiplayerRoom({ phase, roomKey, runId, localPlayerState }) {
       socket.off('connect', handleConnect)
       socket.off('player:assigned', handleAssigned)
       socket.off('room:state', handleRoomState)
+      socket.off('player:updated', handlePlayerUpdated)
+      socket.off('player:joined', handlePlayerJoined)
+      socket.off('player:left', handlePlayerLeft)
       socket.off('room:error', handleRoomError)
       socket.off('disconnect', handleDisconnect)
       socket.off('connect_error', handleConnectError)
@@ -1461,12 +1491,76 @@ function useMultiplayerRoom({ phase, roomKey, runId, localPlayerState }) {
     })
   }, [connectionStatus, localPlayerId, phase, room?.hostPlayerId, roomKey, runId])
 
+  const createRoom = () =>
+    new Promise((resolve) => {
+      const socket = socketRef.current
+      if (!socket?.connected) {
+        setConnectionStatus('error')
+        setConnectionError('La API multijugador todavía no está lista.')
+        resolve(false)
+        return
+      }
+
+      setConnectionStatus('joining')
+      setConnectionError('')
+      socket.emit('room:create', { playerName: playerNameRef.current }, (response) => {
+        if (!response?.ok) {
+          setConnectionStatus('ready')
+          setConnectionError('No se pudo crear la sala.')
+          resolve(false)
+          return
+        }
+
+        resolve(true)
+      })
+    })
+
+  const joinRoom = (roomCode) =>
+    new Promise((resolve) => {
+      const socket = socketRef.current
+      const normalizedRoomCode = normalizeRoomCode(roomCode)
+
+      if (!normalizedRoomCode) {
+        setConnectionError('Ingresa un código de sala válido.')
+        resolve(false)
+        return
+      }
+
+      if (!socket?.connected) {
+        setConnectionStatus('error')
+        setConnectionError('La API multijugador todavía no está lista.')
+        resolve(false)
+        return
+      }
+
+      setConnectionStatus('joining')
+      setConnectionError('')
+      setRequestedRoomCode(normalizedRoomCode)
+      socket.emit(
+        'room:join',
+        { roomCode: normalizedRoomCode, playerName: playerNameRef.current },
+        (response) => {
+          if (!response?.ok) {
+            setConnectionStatus('ready')
+            resolve(false)
+            return
+          }
+
+          resolve(true)
+        },
+      )
+    })
+
   return {
     room,
     localPlayerId,
     roomCode: room?.code ?? roomCodeRef.current,
     connectionStatus,
     connectionError,
+    requestedRoomCode,
+    setRequestedRoomCode,
+    createRoom,
+    joinRoom,
   }
 }
 
@@ -1549,12 +1643,17 @@ export default function App() {
     running: false,
   })
   const active = phase === 'playing'
-  const { room, localPlayerId, roomCode, connectionStatus, connectionError } = useMultiplayerRoom({
-    phase,
-    roomKey,
-    runId,
-    localPlayerState,
-  })
+  const {
+    room,
+    localPlayerId,
+    roomCode,
+    connectionStatus,
+    connectionError,
+    requestedRoomCode,
+    setRequestedRoomCode,
+    createRoom,
+    joinRoom,
+  } = useMultiplayerRoom({ phase, roomKey, runId, localPlayerState })
   const roomPlayers = useMemo(() => {
     const players = room?.players ?? []
 
@@ -1571,15 +1670,21 @@ export default function App() {
     )
   }, [localPlayerId, localPlayerState.position, localPlayerState.rotation, phase, room?.players, roomKey])
   const hasOtherPlayer = roomPlayers.some((player) => player.id !== localPlayerId)
-  const roomPresenceText = !MULTIPLAYER_API_URL
-    ? 'API multijugador no configurada'
-    : connectionStatus === 'connected'
+  const roomPresenceText =
+    connectionStatus === 'connected'
       ? hasOtherPlayer
         ? 'Otro jugador conectado'
         : 'Esperando otro jugador'
+      : connectionStatus === 'ready'
+        ? 'Listo para crear o unirse'
+        : connectionStatus === 'joining'
+          ? 'Uniendo a la sala...'
+          : connectionStatus === 'disconnected'
+            ? 'Reconectando multijugador...'
       : connectionStatus === 'error'
         ? connectionError || 'No se pudo unir a la sala'
         : 'Conectando sala...'
+  const sessionBusy = connectionStatus === 'connecting' || connectionStatus === 'joining'
 
   useBackgroundMusic(phase !== 'intro')
 
@@ -1663,17 +1768,84 @@ export default function App() {
               Las criaturas de Backrooms te alcanzaron dentro de la sala. Vuelve a entrar y sigue corriendo.
             </p>
           )}
-          <button
-            className="start-button"
-            type="button"
-            onClick={() => {
-              setRoomKey('main')
-              setRunId((value) => value + 1)
-              setPhase('playing')
-            }}
-          >
-            {phase === 'lost' ? 'Volver a entrar' : 'Iniciar'}
-          </button>
+          {phase === 'lost' ? (
+            <button
+              className="start-button"
+              type="button"
+              onClick={() => {
+                setRoomKey('main')
+                setRunId((value) => value + 1)
+                setPhase('playing')
+              }}
+            >
+              Volver a entrar
+            </button>
+          ) : (
+            <>
+              <p className="session-status">{roomPresenceText}</p>
+              <label className="room-input-label" htmlFor="room-code">
+                Código de sala
+              </label>
+              <input
+                id="room-code"
+                className="room-input"
+                type="text"
+                inputMode="text"
+                maxLength={6}
+                autoComplete="off"
+                value={requestedRoomCode}
+                onChange={(event) => {
+                  setRequestedRoomCode(normalizeRoomCode(event.target.value))
+                }}
+                onKeyDown={async (event) => {
+                  if (event.key !== 'Enter' || sessionBusy) {
+                    return
+                  }
+
+                  const joined = await joinRoom(requestedRoomCode)
+                  if (joined) {
+                    setRoomKey('main')
+                    setRunId((value) => value + 1)
+                    setPhase('playing')
+                  }
+                }}
+                placeholder="Ejemplo: AB12CD"
+              />
+              <div className="session-actions">
+                <button
+                  className="start-button secondary-button"
+                  type="button"
+                  disabled={sessionBusy}
+                  onClick={async () => {
+                    const created = await createRoom()
+                    if (created) {
+                      setRoomKey('main')
+                      setRunId((value) => value + 1)
+                      setPhase('playing')
+                    }
+                  }}
+                >
+                  Crear sala
+                </button>
+                <button
+                  className="start-button"
+                  type="button"
+                  disabled={sessionBusy}
+                  onClick={async () => {
+                    const joined = await joinRoom(requestedRoomCode)
+                    if (joined) {
+                      setRoomKey('main')
+                      setRunId((value) => value + 1)
+                      setPhase('playing')
+                    }
+                  }}
+                >
+                  Unirme
+                </button>
+              </div>
+              {connectionError ? <p className="session-error">{connectionError}</p> : null}
+            </>
+          )}
         </div>
       </div>
     </div>
