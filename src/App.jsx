@@ -170,9 +170,8 @@ function createMonsterTemplate(scene) {
       : [child.material]
     const nextMaterials = materials.map((material) => {
       const nextMaterial = material.clone()
-      nextMaterial.emissive = new THREE.Color('#4a001f')
-      nextMaterial.emissiveIntensity = 0.9
-      nextMaterial.roughness = 0.78
+      nextMaterial.emissive = new THREE.Color('#000000')
+      nextMaterial.emissiveIntensity = 0
       return nextMaterial
     })
     child.material = nextMaterials.length === 1 ? nextMaterials[0] : nextMaterials
@@ -706,7 +705,7 @@ function MonsterChaser({
 
     const current = monsterPositionRef.current
     const player = playerPositionRef.current
-    const desiredStep = Math.min(delta * (isMobile ? 3.6 : 3.2), isMobile ? 0.12 : 0.1)
+    const desiredStep = Math.min(delta * (isMobile ? 2.55 : 2.35), isMobile ? 0.09 : 0.075)
     const dx = player.x - current.x
     const dz = player.z - current.z
     const distanceToPlayer = Math.hypot(dx, dz)
@@ -757,9 +756,9 @@ function MonsterChaser({
     <group ref={groupRef}>
       <Clone object={template} position={monsterScale.offset} scale={monsterScale.scale} />
       <pointLight
-        color="#b71557"
-        intensity={isMobile ? 2.1 : 3.6}
-        distance={isMobile ? 7.5 : 11}
+        color="#fff0c2"
+        intensity={isMobile ? 1.2 : 1.8}
+        distance={isMobile ? 6.2 : 8.4}
         decay={2}
         position={[0, 1.25, 0]}
       />
