@@ -764,14 +764,14 @@ function LewisPlayerModel() {
     return (
       <primitive
         object={clone}
-        rotation={[-Math.PI / 2, 0, 0]}
+        rotation={[-Math.PI / 2, Math.PI, 0]}
         scale={PLAYER_SKIN_BASE_SCALE * PLAYER_SKIN_WORLD_SCALE}
       />
     )
   }
 
   return (
-    <group dispose={null} scale={PLAYER_SKIN_WORLD_SCALE}>
+    <group dispose={null} rotation={[0, Math.PI, 0]} scale={PLAYER_SKIN_WORLD_SCALE}>
       <primitive object={nodes._rootJoint} />
       <skinnedMesh
         castShadow
