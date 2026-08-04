@@ -13,7 +13,7 @@ const MOBILE_LOOK_SENSITIVITY = 0.0032
 const BACKGROUND_MUSIC_URL = new URL('../musica.mp3', import.meta.url).href
 const ROOM_ASSET_URL = new URL('../backrooms_another_level.glb', import.meta.url).href
 const SECOND_ROOM_ASSET_URL = new URL(
-  '../rec_room_-_backrooms_level_you_cheated.glb',
+  '../poolroom-transformed.glb',
   import.meta.url,
 ).href
 const MONSTER_ASSET_URL = new URL('../backrooms_monster.glb', import.meta.url).href
@@ -1221,18 +1221,34 @@ function BackroomsScene({
           preferredSpawn: { xRatio: 0.34, zRatio: 0.28 },
           preferredMonsterSpawn: { xRatio: -0.14, zRatio: -0.08 },
           preferredLookTarget: { xRatio: -0.16, zRatio: -0.08 },
+          preferredPortal: { xRatio: 0.48, zRatio: 0.06 },
           nextRoom: 'secondary',
           roomLabel: 'Sala Grande',
           portalColor: '#79fff7',
+          backgroundColor: '#141105',
+          fogColor: '#6f6928',
+          ambientColor: '#9c9141',
+          ambientIntensity: 0.4,
+          mainLightColor: '#fff1a8',
+          sideLightAColor: '#f4eba8',
+          sideLightBColor: '#efe18e',
         }
       : {
           assetUrl: SECOND_ROOM_ASSET_URL,
-          preferredSpawn: { x: 0, z: 0 },
-          preferredMonsterSpawn: { x: 0, z: 0 },
-          preferredLookTarget: { x: 0, z: 0 },
+          preferredSpawn: { xRatio: -0.3, zRatio: 0.04 },
+          preferredMonsterSpawn: { xRatio: 0.22, zRatio: -0.18 },
+          preferredLookTarget: { xRatio: 0.08, zRatio: 0.02 },
+          preferredPortal: { xRatio: -0.44, zRatio: 0.06 },
           nextRoom: 'main',
-          roomLabel: 'Sala Secreta',
-          portalColor: '#f2d76a',
+          roomLabel: 'Poolroom',
+          portalColor: '#92f4ff',
+          backgroundColor: '#0f1d26',
+          fogColor: '#5a8f99',
+          ambientColor: '#99dce5',
+          ambientIntensity: 0.55,
+          mainLightColor: '#c5fbff',
+          sideLightAColor: '#9beaf6',
+          sideLightBColor: '#84dceb',
         }
 
   const roomData = useRoomData(
@@ -1285,35 +1301,10 @@ function BackroomsScene({
       ? monsterState
       : defaultMonsterState
   const sharedMonsters = sharedMonsterState.monsters ?? []
-  const portalPosition = useMemo(() => {
-    if (roomKey === 'main') {
-      return {
-        x: THREE.MathUtils.clamp(
-          roomData.spawn.x + roomData.size.x * 0.16,
-          roomData.bounds.minX + 1.2,
-          roomData.bounds.maxX - 1.2,
-        ),
-        z: THREE.MathUtils.clamp(
-          roomData.spawn.z - roomData.size.z * 0.14,
-          roomData.bounds.minZ + 1.2,
-          roomData.bounds.maxZ - 1.2,
-        ),
-      }
-    }
-
-    return {
-      x: THREE.MathUtils.clamp(
-        roomData.spawn.x - roomData.size.x * 0.14,
-        roomData.bounds.minX + 1.2,
-        roomData.bounds.maxX - 1.2,
-      ),
-      z: THREE.MathUtils.clamp(
-        roomData.spawn.z + roomData.size.z * 0.12,
-        roomData.bounds.minZ + 1.2,
-        roomData.bounds.maxZ - 1.2,
-      ),
-    }
-  }, [roomData, roomKey])
+  const portalPosition = useMemo(
+    () => resolveRoomPoint(roomData.bounds, roomPreset.preferredPortal),
+    [roomData.bounds, roomPreset.preferredPortal],
+  )
 
   useEffect(() => {
     camera.far = Math.max(100, roomData.visualRadius * 3)
@@ -1334,7 +1325,7 @@ function BackroomsScene({
       playerPositionRef.current.z - portalPosition.z,
     )
 
-    if (distanceToPortal < 1.25 && clock.getElapsedTime() - lastTraverseRef.current > 1.2) {
+    if (distanceToPortal < 1.5 && clock.getElapsedTime() - lastTraverseRef.current > 1.2) {
       lastTraverseRef.current = clock.getElapsedTime()
       onTraverse(roomPreset.nextRoom)
     }
@@ -1373,12 +1364,15 @@ function BackroomsScene({
 
   return (
     <>
-      <color attach="background" args={['#141105']} />
+      <color attach="background" args={[roomPreset.backgroundColor]} />
       <fogExp2
         attach="fog"
-        args={['#6f6928', THREE.MathUtils.clamp(1 / Math.max(roomData.visualRadius * 3, 40), 0.003, 0.018)]}
+        args={[
+          roomPreset.fogColor,
+          THREE.MathUtils.clamp(1 / Math.max(roomData.visualRadius * 3, 40), 0.003, 0.018),
+        ]}
       />
-      <ambientLight intensity={0.4} color="#9c9141" />
+      <ambientLight intensity={roomPreset.ambientIntensity} color={roomPreset.ambientColor} />
       {isMobile ? null : (
         <>
           <pointLight
@@ -1386,14 +1380,14 @@ function BackroomsScene({
             intensity={4.2}
             distance={sideLightDistance}
             decay={2}
-            color="#f4eba8"
+            color={roomPreset.sideLightAColor}
           />
           <pointLight
             position={[roomData.size.x * 0.22, lightHeight * 0.96, -roomData.size.z * 0.18]}
             intensity={4.2}
             distance={sideLightDistance}
             decay={2}
-            color="#efe18e"
+            color={roomPreset.sideLightBColor}
           />
         </>
       )}
@@ -1403,7 +1397,7 @@ function BackroomsScene({
         intensity={isMobile ? 5.4 : 7}
         distance={mainLightDistance}
         decay={1.8}
-        color="#fff1a8"
+        color={roomPreset.mainLightColor}
       />
 
       <Suspense fallback={null}>
