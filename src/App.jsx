@@ -636,45 +636,38 @@ function MainRoom({ roomData, roomRef }) {
   )
 }
 
-function DoorPortal({ position, color = '#70fff4' }) {
-  const ringRef = useRef()
-  const panelRef = useRef()
-
-  useFrame(({ clock }) => {
-    const pulse = 0.78 + Math.sin(clock.getElapsedTime() * 2.8) * 0.18
-    if (ringRef.current) {
-      ringRef.current.rotation.y += 0.01
-    }
-    if (panelRef.current) {
-      panelRef.current.material.opacity = 0.22 + pulse * 0.18
-    }
-  })
-
+function DoorPortal({
+  position,
+  color = '#70fff4',
+  rotationY = 0,
+  width = 1.55,
+  height = 2.95,
+}) {
+  const frameWidth = width + 0.18
+  const frameHeight = height + 0.18
+  const innerGlowWidth = Math.max(width - 0.1, 0.7)
+  const innerGlowHeight = Math.max(height - 0.1, 1.8)
   return (
-    <group position={[position.x, 0, position.z]}>
-      <mesh position={[0, 1.55, 0.04]} ref={panelRef}>
-        <planeGeometry args={[1.45, 2.9]} />
-        <meshBasicMaterial color={color} transparent opacity={0.32} side={THREE.DoubleSide} />
+    <group position={[position.x, 0, position.z]} rotation={[0, rotationY, 0]}>
+      <mesh position={[0, frameHeight / 2 - 0.08, -0.02]}>
+        <boxGeometry args={[frameWidth, frameHeight, 0.14]} />
+        <meshStandardMaterial color="#111111" emissive={color} emissiveIntensity={0.16} />
       </mesh>
-      <mesh position={[0, 1.55, 0]} ref={ringRef}>
-        <torusGeometry args={[0.92, 0.07, 14, 36]} />
-        <meshStandardMaterial color="#f7fffd" emissive={color} emissiveIntensity={1.6} />
+      <mesh position={[0, frameHeight / 2 - 0.08, 0.055]}>
+        <planeGeometry args={[width, height]} />
+        <meshBasicMaterial color={color} transparent opacity={0.36} side={THREE.DoubleSide} />
       </mesh>
-      <mesh position={[0, 1.55, -0.12]}>
-        <boxGeometry args={[1.68, 3.18, 0.12]} />
-        <meshStandardMaterial color="#141414" emissive={color} emissiveIntensity={0.42} />
+      <mesh position={[0, frameHeight / 2 - 0.08, 0.06]}>
+        <planeGeometry args={[innerGlowWidth, innerGlowHeight]} />
+        <meshBasicMaterial color="#f7fffd" transparent opacity={0.12} side={THREE.DoubleSide} />
       </mesh>
       <pointLight
-        position={[0, 1.6, 0.45]}
+        position={[0, frameHeight / 2 - 0.08, 0.36]}
         color={color}
-        intensity={3.4}
-        distance={8}
+        intensity={2.6}
+        distance={6.5}
         decay={1.8}
       />
-      <mesh position={[0, 3.45, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <ringGeometry args={[0.34, 0.52, 28]} />
-        <meshBasicMaterial color={color} transparent opacity={0.9} />
-      </mesh>
     </group>
   )
 }
@@ -1237,7 +1230,15 @@ function BackroomsScene({
           preferredSpawn: { xRatio: 0.34, zRatio: 0.28 },
           preferredMonsterSpawn: { xRatio: -0.14, zRatio: -0.08 },
           preferredLookTarget: { xRatio: -0.16, zRatio: -0.08 },
-          preferredPortal: { xRatio: 0.44, zRatio: 0.08, halfWidth: 2.8, halfDepth: 2.2 },
+          preferredPortal: {
+            xRatio: 0.82,
+            zRatio: 0.08,
+            halfWidth: 0.95,
+            halfDepth: 1.25,
+            rotationY: -Math.PI / 2,
+            width: 1.55,
+            height: 2.95,
+          },
           nextRoom: 'secondary',
           roomLabel: 'Sala Grande',
           portalColor: '#79fff7',
@@ -1251,10 +1252,18 @@ function BackroomsScene({
         }
       : {
           assetUrl: SECOND_ROOM_ASSET_URL,
-          preferredSpawn: { xRatio: -0.3, zRatio: 0.04 },
+          preferredSpawn: { xRatio: 0.18, zRatio: -0.22 },
           preferredMonsterSpawn: { xRatio: 0.22, zRatio: -0.18 },
           preferredLookTarget: { xRatio: 0.08, zRatio: 0.02 },
-          preferredPortal: { xRatio: -0.4, zRatio: 0.06, halfWidth: 3.2, halfDepth: 2.4 },
+          preferredPortal: {
+            xRatio: -0.82,
+            zRatio: 0.08,
+            halfWidth: 0.95,
+            halfDepth: 1.3,
+            rotationY: Math.PI / 2,
+            width: 1.55,
+            height: 2.95,
+          },
           nextRoom: 'main',
           roomLabel: 'Poolroom',
           portalColor: '#92f4ff',
@@ -1322,6 +1331,7 @@ function BackroomsScene({
     [roomData.bounds, roomPreset.preferredPortal],
   )
   const portalPosition = portalZone.center
+  const portalArmedRef = useRef(false)
 
   useEffect(() => {
     camera.far = Math.max(100, roomData.visualRadius * 3)
@@ -1332,6 +1342,14 @@ function BackroomsScene({
     onBoundsChange?.(roomData.bounds)
   }, [onBoundsChange, roomData.bounds])
 
+  useEffect(() => {
+    const spawnInsidePortal =
+      Math.abs(roomData.spawn.x - portalZone.center.x) <= portalZone.halfWidth &&
+      Math.abs(roomData.spawn.z - portalZone.center.z) <= portalZone.halfDepth
+
+    portalArmedRef.current = !spawnInsidePortal
+  }, [portalZone.center.x, portalZone.center.z, portalZone.halfDepth, portalZone.halfWidth, roomData.spawn.x, roomData.spawn.z, roomKey, runId])
+
   useFrame(({ clock }) => {
     if (!active) {
       return
@@ -1341,7 +1359,13 @@ function BackroomsScene({
       Math.abs(playerPositionRef.current.x - portalZone.center.x) <= portalZone.halfWidth &&
       Math.abs(playerPositionRef.current.z - portalZone.center.z) <= portalZone.halfDepth
 
-    if (insidePortalZone && clock.getElapsedTime() - lastTraverseRef.current > 1.2) {
+    if (!insidePortalZone) {
+      portalArmedRef.current = true
+      return
+    }
+
+    if (portalArmedRef.current && clock.getElapsedTime() - lastTraverseRef.current > 1.35) {
+      portalArmedRef.current = false
       lastTraverseRef.current = clock.getElapsedTime()
       onTraverse(roomPreset.nextRoom)
     }
@@ -1463,6 +1487,9 @@ function BackroomsScene({
         <DoorPortal
           position={portalPosition}
           color={roomPreset.portalColor}
+          rotationY={roomPreset.preferredPortal.rotationY ?? 0}
+          width={roomPreset.preferredPortal.width ?? 1.55}
+          height={roomPreset.preferredPortal.height ?? 2.95}
         />
       </Suspense>
       <Suspense fallback={null}>
