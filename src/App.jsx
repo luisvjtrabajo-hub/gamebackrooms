@@ -13,7 +13,7 @@ const PLAYER_JUMP_VELOCITY = 5.15
 const PLAYER_MAX_STEP_HEIGHT = 1.12
 const MOBILE_BREAKPOINT = 900
 const MOBILE_LOOK_SENSITIVITY = 0.0032
-const BACKGROUND_MUSIC_URL = new URL('../musica.mp3', import.meta.url).href
+const BACKGROUND_MUSIC_URL = new URL('../musi.mpeg', import.meta.url).href
 const ROOM_ASSET_URL = new URL('../backrooms_another_level.glb', import.meta.url).href
 const SECOND_ROOM_ASSET_URL = new URL(
   '../poolroom-transformed.glb',
