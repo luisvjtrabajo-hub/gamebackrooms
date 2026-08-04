@@ -17,7 +17,10 @@ const SECOND_ROOM_ASSET_URL = new URL(
   import.meta.url,
 ).href
 const MONSTER_ASSET_URL = new URL('../backrooms_monster.glb', import.meta.url).href
-const SECOND_MONSTER_ASSET_URL = new URL('../captain_clark_backrooms.glb', import.meta.url).href
+const SECOND_MONSTER_ASSET_URL = new URL(
+  '../captain_clark_backrooms-transformed.glb',
+  import.meta.url,
+).href
 const PLAYER_SKIN_ASSET_URL = new URL(
   '../poppy_playtime_chapter_5__lewis-transformed.glb',
   import.meta.url,
@@ -193,6 +196,18 @@ function getMonsterTemplate(assetUrl, scene) {
   }
 
   return monsterTemplateCache.get(assetUrl)
+}
+
+function createMonsterInstance(assetUrl, scene) {
+  const template = getMonsterTemplate(assetUrl, scene)
+  let hasSkinnedMesh = false
+  template.traverse((child) => {
+    if (child.isSkinnedMesh) {
+      hasSkinnedMesh = true
+    }
+  })
+
+  return hasSkinnedMesh ? cloneSkeleton(template) : template.clone(true)
 }
 
 function resolveRoomPoint(bounds, hint) {
@@ -668,7 +683,10 @@ function MonsterChaser({
   const monsterPositionRef = useRef(
     new THREE.Vector3(roomData.bounds.minX + 1.4, 0, roomData.bounds.minZ + 1.4),
   )
-  const template = useMemo(() => getMonsterTemplate(assetUrl, gltf.scene), [assetUrl, gltf.scene])
+  const monsterInstance = useMemo(
+    () => createMonsterInstance(assetUrl, gltf.scene),
+    [assetUrl, gltf.scene],
+  )
 
   const monsterScale = useMemo(() => {
     const box = new THREE.Box3().setFromObject(gltf.scene)
@@ -705,7 +723,7 @@ function MonsterChaser({
 
     const current = monsterPositionRef.current
     const player = playerPositionRef.current
-    const desiredStep = Math.min(delta * (isMobile ? 2.55 : 2.35), isMobile ? 0.09 : 0.075)
+    const desiredStep = Math.min(delta * (isMobile ? 2.1 : 1.95), isMobile ? 0.075 : 0.06)
     const dx = player.x - current.x
     const dz = player.z - current.z
     const distanceToPlayer = Math.hypot(dx, dz)
@@ -754,7 +772,7 @@ function MonsterChaser({
 
   return (
     <group ref={groupRef}>
-      <Clone object={template} position={monsterScale.offset} scale={monsterScale.scale} />
+      <primitive object={monsterInstance} position={monsterScale.offset} scale={monsterScale.scale} />
       <pointLight
         color="#fff0c2"
         intensity={isMobile ? 1.2 : 1.8}
