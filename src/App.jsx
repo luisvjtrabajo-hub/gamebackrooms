@@ -314,7 +314,7 @@ function buildNavigationData({ scene, offset, bounds, size, coarse = false }) {
       raycaster.set(floorOrigin, new THREE.Vector3(0, -1, 0))
       raycaster.far = floorProbeHeight + 2
 
-      const floorHit = raycaster.intersectObject(probeRoot, true).find((intersection) => {
+      const floorHits = raycaster.intersectObject(probeRoot, true).filter((intersection) => {
         if (!intersection.face) {
           return false
         }
@@ -325,6 +325,7 @@ function buildNavigationData({ scene, offset, bounds, size, coarse = false }) {
 
         return collisionNormal.y > 0.45
       })
+      const floorHit = floorHits.at(-1)
 
       if (!floorHit) {
         continue
@@ -1410,9 +1411,9 @@ function BackroomsScene({
         }
       : {
           assetUrl: SECOND_ROOM_ASSET_URL,
-          preferredSpawn: { xRatio: 0.42, zRatio: 0.22 },
-          preferredMonsterSpawn: { xRatio: -0.18, zRatio: -0.12 },
-          preferredLookTarget: { xRatio: 0.08, zRatio: -0.04 },
+          preferredSpawn: { xRatio: -0.46, zRatio: 0.16 },
+          preferredMonsterSpawn: { xRatio: 0.26, zRatio: -0.08 },
+          preferredLookTarget: { xRatio: 0.08, zRatio: 0.02 },
           preferredPortal: {
             xRatio: -0.82,
             zRatio: 0.08,
