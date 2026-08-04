@@ -233,6 +233,16 @@ function resolveRoomPoint(bounds, hint) {
   }
 }
 
+function resolveRoomZone(bounds, hint, fallbackHalfWidth = 1.5, fallbackHalfDepth = 1.5) {
+  const center = resolveRoomPoint(bounds, hint)
+
+  return {
+    center,
+    halfWidth: Math.max(hint?.halfWidth ?? fallbackHalfWidth, 0.8),
+    halfDepth: Math.max(hint?.halfDepth ?? fallbackHalfDepth, 0.8),
+  }
+}
+
 function buildNavigationData({ scene, offset, bounds, size, coarse = false }) {
   const probeRoot = new THREE.Group()
   const probeScene = scene.clone(true)
@@ -1221,7 +1231,7 @@ function BackroomsScene({
           preferredSpawn: { xRatio: 0.34, zRatio: 0.28 },
           preferredMonsterSpawn: { xRatio: -0.14, zRatio: -0.08 },
           preferredLookTarget: { xRatio: -0.16, zRatio: -0.08 },
-          preferredPortal: { xRatio: 0.48, zRatio: 0.06 },
+          preferredPortal: { xRatio: 0.44, zRatio: 0.08, halfWidth: 2.8, halfDepth: 2.2 },
           nextRoom: 'secondary',
           roomLabel: 'Sala Grande',
           portalColor: '#79fff7',
@@ -1238,7 +1248,7 @@ function BackroomsScene({
           preferredSpawn: { xRatio: -0.3, zRatio: 0.04 },
           preferredMonsterSpawn: { xRatio: 0.22, zRatio: -0.18 },
           preferredLookTarget: { xRatio: 0.08, zRatio: 0.02 },
-          preferredPortal: { xRatio: -0.44, zRatio: 0.06 },
+          preferredPortal: { xRatio: -0.4, zRatio: 0.06, halfWidth: 3.2, halfDepth: 2.4 },
           nextRoom: 'main',
           roomLabel: 'Poolroom',
           portalColor: '#92f4ff',
@@ -1301,10 +1311,11 @@ function BackroomsScene({
       ? monsterState
       : defaultMonsterState
   const sharedMonsters = sharedMonsterState.monsters ?? []
-  const portalPosition = useMemo(
-    () => resolveRoomPoint(roomData.bounds, roomPreset.preferredPortal),
+  const portalZone = useMemo(
+    () => resolveRoomZone(roomData.bounds, roomPreset.preferredPortal, 1.5, 1.5),
     [roomData.bounds, roomPreset.preferredPortal],
   )
+  const portalPosition = portalZone.center
 
   useEffect(() => {
     camera.far = Math.max(100, roomData.visualRadius * 3)
@@ -1320,12 +1331,11 @@ function BackroomsScene({
       return
     }
 
-    const distanceToPortal = Math.hypot(
-      playerPositionRef.current.x - portalPosition.x,
-      playerPositionRef.current.z - portalPosition.z,
-    )
+    const insidePortalZone =
+      Math.abs(playerPositionRef.current.x - portalZone.center.x) <= portalZone.halfWidth &&
+      Math.abs(playerPositionRef.current.z - portalZone.center.z) <= portalZone.halfDepth
 
-    if (distanceToPortal < 1.5 && clock.getElapsedTime() - lastTraverseRef.current > 1.2) {
+    if (insidePortalZone && clock.getElapsedTime() - lastTraverseRef.current > 1.2) {
       lastTraverseRef.current = clock.getElapsedTime()
       onTraverse(roomPreset.nextRoom)
     }
