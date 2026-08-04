@@ -8,6 +8,8 @@ import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.j
 const PLAYER_HEIGHT = 1.65
 const PLAYER_PADDING = 0.95
 const PLAYER_RADIUS = 0.28
+const PLAYER_GRAVITY = 16
+const PLAYER_JUMP_VELOCITY = 5.15
 const MOBILE_BREAKPOINT = 900
 const MOBILE_LOOK_SENSITIVITY = 0.0032
 const BACKGROUND_MUSIC_URL = new URL('../musica.mp3', import.meta.url).href
@@ -1053,10 +1055,14 @@ function PlayerController({
   const yawRef = useRef(0)
   const pitchRef = useRef(0)
   const lastReportRef = useRef(0)
+  const verticalVelocityRef = useRef(0)
+  const jumpQueuedRef = useRef(false)
 
   useEffect(() => {
     playerPositionRef.current.set(roomData.spawn.x, roomData.spawn.y, roomData.spawn.z)
     camera.position.copy(playerPositionRef.current)
+    verticalVelocityRef.current = 0
+    jumpQueuedRef.current = false
     lookTarget.set(initialLookTarget.x, PLAYER_HEIGHT, initialLookTarget.z)
     camera.lookAt(lookTarget)
     yawRef.current = camera.rotation.y
@@ -1080,6 +1086,10 @@ function PlayerController({
 
   useEffect(() => {
     const handleKeyDown = (event) => {
+      if (event.code === 'Space') {
+        event.preventDefault()
+        jumpQueuedRef.current = true
+      }
       keys.current[event.code] = true
     }
     const handleKeyUp = (event) => {
@@ -1171,7 +1181,30 @@ function PlayerController({
       resolvedZ = clampedZ
     }
 
-    nextPosition.set(resolvedX, PLAYER_HEIGHT, resolvedZ)
+    const grounded = playerPositionRef.current.y <= PLAYER_HEIGHT + 0.001
+    const requestedJump = keys.current.Space || (isMobile && mobileControls.jump)
+
+    if (requestedJump) {
+      jumpQueuedRef.current = true
+      mobileControls.jump = false
+    }
+
+    if (grounded && jumpQueuedRef.current) {
+      verticalVelocityRef.current = PLAYER_JUMP_VELOCITY
+      jumpQueuedRef.current = false
+    }
+
+    verticalVelocityRef.current -= PLAYER_GRAVITY * delta
+    const nextY = Math.max(
+      PLAYER_HEIGHT,
+      playerPositionRef.current.y + verticalVelocityRef.current * delta,
+    )
+
+    if (nextY <= PLAYER_HEIGHT + 0.001 && verticalVelocityRef.current < 0) {
+      verticalVelocityRef.current = 0
+    }
+
+    nextPosition.set(resolvedX, nextY, resolvedZ)
     playerPositionRef.current.copy(nextPosition)
 
     const movementAmount = Math.hypot(
@@ -1186,7 +1219,10 @@ function PlayerController({
     camera.position.x = nextPosition.x
     camera.position.z = nextPosition.z
     camera.position.y =
-      PLAYER_HEIGHT + Math.sin(walkingRef.current) * Math.min(0.05, movementAmount * 0.22)
+      nextPosition.y +
+      Math.sin(walkingRef.current) *
+        Math.min(0.05, movementAmount * 0.22) *
+        (nextY <= PLAYER_HEIGHT + 0.02 ? 1 : 0.3)
 
     const now = typeof performance !== 'undefined' ? performance.now() : Date.now()
     if (now - lastReportRef.current >= 55) {
@@ -1540,6 +1576,7 @@ function MobileControls({ active, mobileControlsRef }) {
     mobileControlsRef.current.lookX = 0
     mobileControlsRef.current.lookY = 0
     mobileControlsRef.current.running = false
+    mobileControlsRef.current.jump = false
     setMoveThumb({ x: 0, y: 0 })
     return undefined
   }, [active, mobileControlsRef])
@@ -1659,6 +1696,16 @@ function MobileControls({ active, mobileControlsRef }) {
           }}
         >
           Correr
+        </button>
+        <button
+          className="mobile-jump-button"
+          type="button"
+          onPointerDown={(event) => {
+            event.preventDefault()
+            mobileControlsRef.current.jump = true
+          }}
+        >
+          Saltar
         </button>
       </div>
     </div>
@@ -2005,6 +2052,7 @@ export default function App() {
     lookX: 0,
     lookY: 0,
     running: false,
+    jump: false,
   })
   const active = phase === 'playing'
   const {

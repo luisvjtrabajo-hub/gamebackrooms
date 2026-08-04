@@ -181,7 +181,8 @@ canvas {
 }
 
 .mobile-pad,
-.mobile-run-button {
+.mobile-run-button,
+.mobile-jump-button {
   touch-action: none;
 }
 
@@ -223,6 +224,10 @@ canvas {
   position: absolute;
   right: 18px;
   bottom: 154px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
   pointer-events: auto;
 }
 
@@ -236,6 +241,19 @@ canvas {
   color: #0a0d0c;
   background: linear-gradient(135deg, #fff4b5 0%, #73fff4 100%);
   box-shadow: 0 12px 30px rgba(115, 255, 244, 0.2);
+}
+
+.mobile-jump-button {
+  border: 0;
+  min-width: 72px;
+  border-radius: 999px;
+  padding: 9px 14px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #eef8ff;
+  background: rgba(75, 126, 146, 0.78);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
+  backdrop-filter: blur(8px);
 }
 
 .overlay {
