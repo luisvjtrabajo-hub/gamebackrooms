@@ -673,17 +673,24 @@ function MonsterChaser({
   active,
   assetUrl,
   roomData,
+  players,
+  localPlayerId,
   playerPositionRef,
   onCatch,
-  runId,
   initialSpawn,
   isMobile,
+  authoritative,
+  networkState,
+  onStateChange,
+  monsterId,
 }) {
   const gltf = useGLTF(assetUrl)
   const groupRef = useRef()
   const monsterPositionRef = useRef(
     new THREE.Vector3(roomData.bounds.minX + 1.4, 0, roomData.bounds.minZ + 1.4),
   )
+  const monsterRotationRef = useRef(0)
+  const syncAccumulatorRef = useRef(0)
   const monsterInstance = useMemo(
     () => createMonsterInstance(assetUrl, gltf.scene),
     [assetUrl, gltf.scene],
@@ -706,16 +713,19 @@ function MonsterChaser({
   }, [gltf.scene, roomData.size.x, roomData.size.y, roomData.size.z])
 
   useEffect(() => {
+    const nextSpawn = networkState?.position ?? initialSpawn
     monsterPositionRef.current.set(
-      initialSpawn.x,
-      initialSpawn.y,
-      initialSpawn.z,
+      nextSpawn.x,
+      nextSpawn.y ?? 0,
+      nextSpawn.z,
     )
+    monsterRotationRef.current = Number.isFinite(networkState?.rotation) ? networkState.rotation : 0
+    syncAccumulatorRef.current = 0
     if (groupRef.current) {
       groupRef.current.position.copy(monsterPositionRef.current)
-      groupRef.current.rotation.set(0, 0, 0)
+      groupRef.current.rotation.set(0, monsterRotationRef.current, 0)
     }
-  }, [initialSpawn.x, initialSpawn.y, initialSpawn.z, roomData, runId])
+  }, [initialSpawn.x, initialSpawn.y, initialSpawn.z, networkState?.position, networkState?.rotation, roomData])
 
   useFrame((state, delta) => {
     if (!active || !groupRef.current) {
@@ -723,45 +733,91 @@ function MonsterChaser({
     }
 
     const current = monsterPositionRef.current
-    const player = playerPositionRef.current
+    const localPlayer = playerPositionRef.current
     const desiredStep = Math.min(delta * (isMobile ? 2.1 : 1.95), isMobile ? 0.075 : 0.06)
-    const dx = player.x - current.x
-    const dz = player.z - current.z
-    const distanceToPlayer = Math.hypot(dx, dz)
+    const localDistanceToPlayer = Math.hypot(localPlayer.x - current.x, localPlayer.z - current.z)
 
-    if (distanceToPlayer < 1.15) {
+    if (localDistanceToPlayer < 1.15) {
       onCatch()
       return
     }
 
-    if (distanceToPlayer > 0.001) {
-      const dirX = dx / distanceToPlayer
-      const dirZ = dz / distanceToPlayer
+    if (authoritative) {
+      const targetPlayers =
+        (players ?? []).filter(
+          (player) =>
+            player?.position &&
+            player.roomKey === 'main' &&
+            (player.phase === 'playing' || player.id === localPlayerId),
+        ) ?? []
 
-      const targetX = THREE.MathUtils.clamp(
-        current.x + dirX * desiredStep,
-        roomData.bounds.minX,
-        roomData.bounds.maxX,
-      )
-      const targetZ = THREE.MathUtils.clamp(
-        current.z + dirZ * desiredStep,
-        roomData.bounds.minZ,
-        roomData.bounds.maxZ,
-      )
+      const targetPlayer =
+        targetPlayers.reduce((closest, player) => {
+          const candidateDistance = Math.hypot(
+            player.position.x - current.x,
+            player.position.z - current.z,
+          )
+          if (!closest || candidateDistance < closest.distance) {
+            return { player, distance: candidateDistance }
+          }
+          return closest
+        }, null)?.player ?? { position: localPlayer }
 
-      let resolvedX = current.x
-      let resolvedZ = current.z
+      const dx = targetPlayer.position.x - current.x
+      const dz = targetPlayer.position.z - current.z
+      const distanceToTarget = Math.hypot(dx, dz)
 
-      if (isWalkablePosition(roomData.navigation, targetX, resolvedZ, PLAYER_RADIUS * 1.05)) {
-        resolvedX = targetX
+      if (distanceToTarget > 0.001) {
+        const dirX = dx / distanceToTarget
+        const dirZ = dz / distanceToTarget
+
+        const targetX = THREE.MathUtils.clamp(
+          current.x + dirX * desiredStep,
+          roomData.bounds.minX,
+          roomData.bounds.maxX,
+        )
+        const targetZ = THREE.MathUtils.clamp(
+          current.z + dirZ * desiredStep,
+          roomData.bounds.minZ,
+          roomData.bounds.maxZ,
+        )
+
+        let resolvedX = current.x
+        let resolvedZ = current.z
+
+        if (isWalkablePosition(roomData.navigation, targetX, resolvedZ, PLAYER_RADIUS * 1.05)) {
+          resolvedX = targetX
+        }
+
+        if (isWalkablePosition(roomData.navigation, resolvedX, targetZ, PLAYER_RADIUS * 1.05)) {
+          resolvedZ = targetZ
+        }
+
+        current.set(resolvedX, 0, resolvedZ)
+        monsterRotationRef.current = Math.atan2(
+          targetPlayer.position.x - current.x,
+          targetPlayer.position.z - current.z,
+        )
       }
 
-      if (isWalkablePosition(roomData.navigation, resolvedX, targetZ, PLAYER_RADIUS * 1.05)) {
-        resolvedZ = targetZ
+      syncAccumulatorRef.current += delta * 1000
+      if (syncAccumulatorRef.current >= MONSTER_SYNC_INTERVAL_MS) {
+        syncAccumulatorRef.current = 0
+        onStateChange?.({
+          id: monsterId,
+          assetUrl,
+          position: { x: current.x, y: 0, z: current.z },
+          rotation: monsterRotationRef.current,
+        })
       }
-
-      current.set(resolvedX, 0, resolvedZ)
-      groupRef.current.rotation.y = Math.atan2(player.x - current.x, player.z - current.z)
+    } else if (networkState?.position) {
+      current.x = THREE.MathUtils.lerp(current.x, networkState.position.x, 0.18)
+      current.z = THREE.MathUtils.lerp(current.z, networkState.position.z, 0.18)
+      monsterRotationRef.current = THREE.MathUtils.lerp(
+        monsterRotationRef.current,
+        Number.isFinite(networkState.rotation) ? networkState.rotation : monsterRotationRef.current,
+        0.18,
+      )
     }
 
     groupRef.current.position.set(
@@ -769,6 +825,7 @@ function MonsterChaser({
       Math.sin(state.clock.getElapsedTime() * 3.2) * 0.035,
       current.z,
     )
+    groupRef.current.rotation.y = monsterRotationRef.current
   })
 
   return (
@@ -1090,6 +1147,9 @@ function BackroomsScene({
   mobileControlsRef,
   players,
   localPlayerId,
+  isHost,
+  monsterState,
+  onMonsterStateChange,
   onPlayerStateChange,
   onBoundsChange,
 }) {
@@ -1134,7 +1194,36 @@ function BackroomsScene({
   const monsterSpawns = useMemo(() => {
     return pickMonsterSpawns(roomData.navigation, roomData.spawn, roomData.size)
   }, [roomData, roomKey, runId])
-  const secondMonsterAssetUrl = isMobile ? MONSTER_ASSET_URL : SECOND_MONSTER_ASSET_URL
+  const secondMonsterAssetUrl = SECOND_MONSTER_ASSET_URL
+  const defaultMonsterState = useMemo(
+    () => ({
+      roomKey,
+      runId,
+      monsters:
+        roomKey === 'main'
+          ? [
+              {
+                id: 'monster-1',
+                assetUrl: MONSTER_ASSET_URL,
+                position: monsterSpawns.firstSpawn,
+                rotation: 0,
+              },
+              {
+                id: 'monster-2',
+                assetUrl: secondMonsterAssetUrl,
+                position: monsterSpawns.secondSpawn,
+                rotation: 0,
+              },
+            ]
+          : [],
+    }),
+    [monsterSpawns.firstSpawn, monsterSpawns.secondSpawn, roomKey, runId, secondMonsterAssetUrl],
+  )
+  const sharedMonsterState =
+    monsterState?.roomKey === roomKey && monsterState?.runId === runId
+      ? monsterState
+      : defaultMonsterState
+  const sharedMonsters = sharedMonsterState.monsters ?? []
   const portalPosition = useMemo(() => {
     if (roomKey === 'main') {
       return {
@@ -1190,6 +1279,37 @@ function BackroomsScene({
     }
   })
 
+  useEffect(() => {
+    if (!active || !isHost) {
+      return
+    }
+
+    const isOutdated =
+      monsterState?.roomKey !== roomKey ||
+      monsterState?.runId !== runId ||
+      (roomKey === 'main' && (monsterState?.monsters?.length ?? 0) < 2)
+
+    if (isOutdated) {
+      onMonsterStateChange?.(defaultMonsterState)
+    }
+  }, [active, defaultMonsterState, isHost, monsterState, onMonsterStateChange, roomKey, runId])
+
+  const handleMonsterStateChange = (monsterSnapshot) => {
+    if (!isHost) {
+      return
+    }
+
+    const nextMonsters = sharedMonsters.map((monster) =>
+      monster.id === monsterSnapshot.id ? { ...monster, ...monsterSnapshot } : monster,
+    )
+
+    onMonsterStateChange?.({
+      roomKey,
+      runId,
+      monsters: nextMonsters,
+    })
+  }
+
   return (
     <>
       <color attach="background" args={['#141105']} />
@@ -1235,11 +1355,16 @@ function BackroomsScene({
               active={active}
               assetUrl={MONSTER_ASSET_URL}
               roomData={roomData}
+              players={players}
+              localPlayerId={localPlayerId}
               playerPositionRef={playerPositionRef}
               onCatch={onCaught}
-              runId={runId}
-              initialSpawn={monsterSpawns.firstSpawn}
+              initialSpawn={sharedMonsters[0]?.position ?? monsterSpawns.firstSpawn}
               isMobile={isMobile}
+              authoritative={isHost}
+              networkState={sharedMonsters[0]}
+              onStateChange={handleMonsterStateChange}
+              monsterId="monster-1"
             />
           </Suspense>
           <Suspense fallback={null}>
@@ -1247,11 +1372,16 @@ function BackroomsScene({
               active={active}
               assetUrl={secondMonsterAssetUrl}
               roomData={roomData}
+              players={players}
+              localPlayerId={localPlayerId}
               playerPositionRef={playerPositionRef}
               onCatch={onCaught}
-              runId={runId}
-              initialSpawn={monsterSpawns.secondSpawn}
+              initialSpawn={sharedMonsters[1]?.position ?? monsterSpawns.secondSpawn}
               isMobile={isMobile}
+              authoritative={isHost}
+              networkState={sharedMonsters[1]}
+              onStateChange={handleMonsterStateChange}
+              monsterId="monster-2"
             />
           </Suspense>
         </>
