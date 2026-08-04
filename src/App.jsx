@@ -10,6 +10,7 @@ const PLAYER_PADDING = 0.95
 const PLAYER_RADIUS = 0.28
 const PLAYER_GRAVITY = 16
 const PLAYER_JUMP_VELOCITY = 5.15
+const PLAYER_MAX_STEP_HEIGHT = 0.9
 const MOBILE_BREAKPOINT = 900
 const MOBILE_LOOK_SENSITIVITY = 0.0032
 const BACKGROUND_MUSIC_URL = new URL('../musica.mp3', import.meta.url).href
@@ -32,6 +33,7 @@ const PLAYER_SKIN_WORLD_SCALE = 0.1
 const MONSTER_SYNC_INTERVAL_MS = 55
 const PORTAL_TRAVERSE_COOLDOWN_S = 0.42
 const NAVIGATION_HEIGHT = 1
+const NAVIGATION_PROBE_OFFSET = 0.68
 const MULTIPLAYER_API_URL =
   `${import.meta.env.VITE_API_URL ?? ''}`.trim() || 'https://gamebackroomsapi.onrender.com'
 const preparedRoomCache = new Map()
@@ -246,6 +248,32 @@ function resolveRoomZone(bounds, hint, fallbackHalfWidth = 1.5, fallbackHalfDept
   }
 }
 
+function getNavigationIndex(navigation, x, z) {
+  const column = Math.round((x - navigation.originX) / navigation.step)
+  const row = Math.round((z - navigation.originZ) / navigation.step)
+
+  if (
+    column < 0 ||
+    row < 0 ||
+    column >= navigation.columns ||
+    row >= navigation.rows
+  ) {
+    return -1
+  }
+
+  return row * navigation.columns + column
+}
+
+function getNavigationFloorHeight(navigation, x, z, fallback = 0) {
+  const index = getNavigationIndex(navigation, x, z)
+  if (index < 0) {
+    return fallback
+  }
+
+  const floorHeight = navigation.floorHeights?.[index]
+  return Number.isFinite(floorHeight) ? floorHeight : fallback
+}
+
 function buildNavigationData({ scene, offset, bounds, size, coarse = false }) {
   const probeRoot = new THREE.Group()
   const probeScene = scene.clone(true)
@@ -272,13 +300,41 @@ function buildNavigationData({ scene, offset, bounds, size, coarse = false }) {
   const columns = Math.floor((bounds.maxX - bounds.minX) / step) + 1
   const rows = Math.floor((bounds.maxZ - bounds.minZ) / step) + 1
   const walkable = new Uint8Array(columns * rows)
+  const floorHeights = new Float32Array(columns * rows).fill(Number.NaN)
   const candidates = []
+  const floorProbeHeight = Math.max(size.y + 2.5, PLAYER_HEIGHT * 2.5)
 
   for (let column = 0; column < columns; column += 1) {
     const x = bounds.minX + column * step
     for (let row = 0; row < rows; row += 1) {
       const z = bounds.minZ + row * step
-      const origin = new THREE.Vector3(x, NAVIGATION_HEIGHT, z)
+      const index = row * columns + column
+      const floorOrigin = new THREE.Vector3(x, floorProbeHeight, z)
+      raycaster.set(floorOrigin, new THREE.Vector3(0, -1, 0))
+      raycaster.far = floorProbeHeight + 2
+
+      const floorHit = raycaster.intersectObject(probeRoot, true).find((intersection) => {
+        if (!intersection.face) {
+          return false
+        }
+
+        collisionNormal
+          .copy(intersection.face.normal)
+          .transformDirection(intersection.object.matrixWorld)
+
+        return collisionNormal.y > 0.45
+      })
+
+      if (!floorHit) {
+        continue
+      }
+
+      const floorY = floorHit.point.y
+      const origin = new THREE.Vector3(
+        x,
+        Math.max(floorY + NAVIGATION_PROBE_OFFSET, NAVIGATION_HEIGHT),
+        z,
+      )
       let minDistance = Infinity
       let score = 0
       let blocked = false
@@ -308,10 +364,10 @@ function buildNavigationData({ scene, offset, bounds, size, coarse = false }) {
         blocked = true
       }
 
-      const index = row * columns + column
       if (!blocked) {
         walkable[index] = 1
-        candidates.push({ x, z, score })
+        floorHeights[index] = floorY
+        candidates.push({ x, y: floorY, z, score })
       }
     }
   }
@@ -323,11 +379,18 @@ function buildNavigationData({ scene, offset, bounds, size, coarse = false }) {
     columns,
     rows,
     walkable,
+    floorHeights,
     candidates,
   }
 }
 
-function isWalkablePosition(navigation, x, z, radius = PLAYER_RADIUS) {
+function isWalkablePosition(
+  navigation,
+  x,
+  z,
+  radius = PLAYER_RADIUS,
+  referenceFloorHeight = null,
+) {
   const sampleRadius = radius * 0.52
   const sampleOffsets = [
     [0, 0],
@@ -340,19 +403,25 @@ function isWalkablePosition(navigation, x, z, radius = PLAYER_RADIUS) {
   return sampleOffsets.every(([offsetX, offsetZ]) => {
     const sampleX = x + offsetX
     const sampleZ = z + offsetZ
-    const column = Math.round((sampleX - navigation.originX) / navigation.step)
-    const row = Math.round((sampleZ - navigation.originZ) / navigation.step)
+    const index = getNavigationIndex(navigation, sampleX, sampleZ)
 
-    if (
-      column < 0 ||
-      row < 0 ||
-      column >= navigation.columns ||
-      row >= navigation.rows
-    ) {
+    if (index < 0) {
       return false
     }
 
-    return navigation.walkable[row * navigation.columns + column] === 1
+    if (navigation.walkable[index] !== 1) {
+      return false
+    }
+
+    if (!Number.isFinite(referenceFloorHeight)) {
+      return true
+    }
+
+    const sampleFloorHeight = navigation.floorHeights?.[index]
+    return (
+      Number.isFinite(sampleFloorHeight) &&
+      Math.abs(sampleFloorHeight - referenceFloorHeight) <= PLAYER_MAX_STEP_HEIGHT
+    )
   })
 }
 
@@ -427,7 +496,7 @@ function pickRandomMonsterSpawn(navigation, playerSpawn, size, occupiedPositions
 
   return {
     x: selected?.x ?? playerSpawn.x,
-    y: 0,
+    y: selected?.y ?? 0,
     z: selected?.z ?? playerSpawn.z,
   }
 }
@@ -456,7 +525,7 @@ function pickMonsterSpawns(navigation, playerSpawn, size) {
     if (fallbackCandidate) {
       secondSpawn = {
         x: fallbackCandidate.x,
-        y: 0,
+        y: fallbackCandidate.y ?? 0,
         z: fallbackCandidate.z,
       }
     }
@@ -541,12 +610,12 @@ function findNavigationAnchors({
   return {
     spawn: {
       x: spawnCandidate.x,
-      y: PLAYER_HEIGHT,
+      y: PLAYER_HEIGHT + (spawnCandidate.y ?? 0),
       z: spawnCandidate.z,
     },
     monsterSpawn: {
       x: monsterCandidate.x,
-      y: 0,
+      y: monsterCandidate.y ?? 0,
       z: monsterCandidate.z,
     },
   }
@@ -1111,6 +1180,12 @@ function PlayerController({
     }
 
     const mobileControls = mobileControlsRef.current
+    const currentGroundHeight = getNavigationFloorHeight(
+      roomData.navigation,
+      playerPositionRef.current.x,
+      playerPositionRef.current.z,
+      Math.max(playerPositionRef.current.y - PLAYER_HEIGHT, 0),
+    )
     const inputX = clampInput(
       (keys.current.KeyD ? 1 : 0) -
         (keys.current.KeyA ? 1 : 0) +
@@ -1168,20 +1243,51 @@ function PlayerController({
     let resolvedZ = playerPositionRef.current.z
 
     if (
-      isWalkablePosition(roomData.navigation, clampedX, resolvedZ) ||
-      isWalkablePosition(roomData.navigation, clampedX, resolvedZ, PLAYER_RADIUS * 0.82)
+      isWalkablePosition(
+        roomData.navigation,
+        clampedX,
+        resolvedZ,
+        PLAYER_RADIUS,
+        currentGroundHeight,
+      ) ||
+      isWalkablePosition(
+        roomData.navigation,
+        clampedX,
+        resolvedZ,
+        PLAYER_RADIUS * 0.82,
+        currentGroundHeight,
+      )
     ) {
       resolvedX = clampedX
     }
 
     if (
-      isWalkablePosition(roomData.navigation, resolvedX, clampedZ) ||
-      isWalkablePosition(roomData.navigation, resolvedX, clampedZ, PLAYER_RADIUS * 0.82)
+      isWalkablePosition(
+        roomData.navigation,
+        resolvedX,
+        clampedZ,
+        PLAYER_RADIUS,
+        currentGroundHeight,
+      ) ||
+      isWalkablePosition(
+        roomData.navigation,
+        resolvedX,
+        clampedZ,
+        PLAYER_RADIUS * 0.82,
+        currentGroundHeight,
+      )
     ) {
       resolvedZ = clampedZ
     }
 
-    const grounded = playerPositionRef.current.y <= PLAYER_HEIGHT + 0.001
+    const targetGroundHeight = getNavigationFloorHeight(
+      roomData.navigation,
+      resolvedX,
+      resolvedZ,
+      currentGroundHeight,
+    )
+    const grounded =
+      playerPositionRef.current.y <= currentGroundHeight + PLAYER_HEIGHT + 0.02
     const requestedJump = keys.current.Space || (isMobile && mobileControls.jump)
 
     if (requestedJump) {
@@ -1196,11 +1302,14 @@ function PlayerController({
 
     verticalVelocityRef.current -= PLAYER_GRAVITY * delta
     const nextY = Math.max(
-      PLAYER_HEIGHT,
+      targetGroundHeight + PLAYER_HEIGHT,
       playerPositionRef.current.y + verticalVelocityRef.current * delta,
     )
 
-    if (nextY <= PLAYER_HEIGHT + 0.001 && verticalVelocityRef.current < 0) {
+    if (
+      nextY <= targetGroundHeight + PLAYER_HEIGHT + 0.001 &&
+      verticalVelocityRef.current < 0
+    ) {
       verticalVelocityRef.current = 0
     }
 
@@ -1222,7 +1331,7 @@ function PlayerController({
       nextPosition.y +
       Math.sin(walkingRef.current) *
         Math.min(0.05, movementAmount * 0.22) *
-        (nextY <= PLAYER_HEIGHT + 0.02 ? 1 : 0.3)
+        (nextY <= targetGroundHeight + PLAYER_HEIGHT + 0.02 ? 1 : 0.3)
 
     const now = typeof performance !== 'undefined' ? performance.now() : Date.now()
     if (now - lastReportRef.current >= 55) {
