@@ -27,7 +27,7 @@ const PLAYER_SKIN_ASSET_URL = new URL(
 ).href
 const PLAYER_SKIN_BASE_SCALE = 0.1
 const PLAYER_SKIN_WORLD_SCALE = 0.1
-const MONSTER_SYNC_INTERVAL_MS = 80
+const MONSTER_SYNC_INTERVAL_MS = 55
 const NAVIGATION_HEIGHT = 1
 const MULTIPLAYER_API_URL =
   `${import.meta.env.VITE_API_URL ?? ''}`.trim() || 'https://gamebackroomsapi.onrender.com'
@@ -690,7 +690,11 @@ function MonsterChaser({
   const monsterPositionRef = useRef(
     new THREE.Vector3(roomData.bounds.minX + 1.4, 0, roomData.bounds.minZ + 1.4),
   )
+  const renderedPositionRef = useRef(
+    new THREE.Vector3(roomData.bounds.minX + 1.4, 0, roomData.bounds.minZ + 1.4),
+  )
   const monsterRotationRef = useRef(0)
+  const renderedRotationRef = useRef(0)
   const syncAccumulatorRef = useRef(0)
   const monsterInstance = useMemo(
     () => createMonsterInstance(assetUrl, gltf.scene),
@@ -721,10 +725,12 @@ function MonsterChaser({
       nextSpawn.z,
     )
     monsterRotationRef.current = Number.isFinite(networkState?.rotation) ? networkState.rotation : 0
+    renderedPositionRef.current.copy(monsterPositionRef.current)
+    renderedRotationRef.current = monsterRotationRef.current
     syncAccumulatorRef.current = 0
     if (groupRef.current) {
-      groupRef.current.position.copy(monsterPositionRef.current)
-      groupRef.current.rotation.set(0, monsterRotationRef.current, 0)
+      groupRef.current.position.copy(renderedPositionRef.current)
+      groupRef.current.rotation.set(0, renderedRotationRef.current, 0)
     }
   }, [initialSpawn.x, initialSpawn.y, initialSpawn.z, networkState?.position, networkState?.rotation, roomData])
 
@@ -839,12 +845,21 @@ function MonsterChaser({
       )
     }
 
-    groupRef.current.position.set(
-      current.x,
-      Math.sin(state.clock.getElapsedTime() * 3.2) * 0.035,
-      current.z,
+    const movementSmoothing = 1 - Math.exp(-delta * (isMobile ? 8 : 9))
+    const rotationSmoothing = 1 - Math.exp(-delta * (isMobile ? 7 : 8))
+    renderedPositionRef.current.lerp(current, movementSmoothing)
+    renderedRotationRef.current = THREE.MathUtils.lerp(
+      renderedRotationRef.current,
+      monsterRotationRef.current,
+      rotationSmoothing,
     )
-    groupRef.current.rotation.y = monsterRotationRef.current
+
+    groupRef.current.position.set(
+      renderedPositionRef.current.x,
+      Math.sin(state.clock.getElapsedTime() * 3.2) * 0.035,
+      renderedPositionRef.current.z,
+    )
+    groupRef.current.rotation.y = renderedRotationRef.current
   })
 
   return (
