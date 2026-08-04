@@ -693,8 +693,12 @@ function MonsterChaser({
   const renderedPositionRef = useRef(
     new THREE.Vector3(roomData.bounds.minX + 1.4, 0, roomData.bounds.minZ + 1.4),
   )
+  const networkTargetRef = useRef(
+    new THREE.Vector3(roomData.bounds.minX + 1.4, 0, roomData.bounds.minZ + 1.4),
+  )
   const monsterRotationRef = useRef(0)
   const renderedRotationRef = useRef(0)
+  const networkRotationRef = useRef(0)
   const syncAccumulatorRef = useRef(0)
   const monsterInstance = useMemo(
     () => createMonsterInstance(assetUrl, gltf.scene),
@@ -718,13 +722,14 @@ function MonsterChaser({
   }, [gltf.scene, roomData.size.x, roomData.size.y, roomData.size.z])
 
   useEffect(() => {
-    const nextSpawn = networkState?.position ?? initialSpawn
     monsterPositionRef.current.set(
-      nextSpawn.x,
-      nextSpawn.y ?? 0,
-      nextSpawn.z,
+      initialSpawn.x,
+      initialSpawn.y ?? 0,
+      initialSpawn.z,
     )
-    monsterRotationRef.current = Number.isFinite(networkState?.rotation) ? networkState.rotation : 0
+    networkTargetRef.current.copy(monsterPositionRef.current)
+    monsterRotationRef.current = 0
+    networkRotationRef.current = 0
     renderedPositionRef.current.copy(monsterPositionRef.current)
     renderedRotationRef.current = monsterRotationRef.current
     syncAccumulatorRef.current = 0
@@ -732,7 +737,20 @@ function MonsterChaser({
       groupRef.current.position.copy(renderedPositionRef.current)
       groupRef.current.rotation.set(0, renderedRotationRef.current, 0)
     }
-  }, [initialSpawn.x, initialSpawn.y, initialSpawn.z, networkState?.position, networkState?.rotation, roomData])
+  }, [initialSpawn.x, initialSpawn.y, initialSpawn.z, roomData])
+
+  useEffect(() => {
+    if (authoritative || !networkState?.position) {
+      return
+    }
+
+    networkTargetRef.current.set(
+      networkState.position.x,
+      networkState.position.y ?? 0,
+      networkState.position.z,
+    )
+    networkRotationRef.current = Number.isFinite(networkState.rotation) ? networkState.rotation : 0
+  }, [authoritative, networkState?.position?.x, networkState?.position?.y, networkState?.position?.z, networkState?.rotation])
 
   useFrame((state, delta) => {
     if (!active || !groupRef.current) {
@@ -836,12 +854,13 @@ function MonsterChaser({
         })
       }
     } else if (networkState?.position) {
-      current.x = THREE.MathUtils.lerp(current.x, networkState.position.x, 0.18)
-      current.z = THREE.MathUtils.lerp(current.z, networkState.position.z, 0.18)
+      const networkFollow = 1 - Math.exp(-delta * (isMobile ? 7 : 8))
+      current.x = THREE.MathUtils.lerp(current.x, networkTargetRef.current.x, networkFollow)
+      current.z = THREE.MathUtils.lerp(current.z, networkTargetRef.current.z, networkFollow)
       monsterRotationRef.current = THREE.MathUtils.lerp(
         monsterRotationRef.current,
-        Number.isFinite(networkState.rotation) ? networkState.rotation : monsterRotationRef.current,
-        0.18,
+        networkRotationRef.current,
+        1 - Math.exp(-delta * (isMobile ? 6 : 7)),
       )
     }
 
@@ -1401,7 +1420,7 @@ function BackroomsScene({
               localPlayerId={localPlayerId}
               playerPositionRef={playerPositionRef}
               onCatch={onCaught}
-              initialSpawn={sharedMonsters[0]?.position ?? monsterSpawns.firstSpawn}
+              initialSpawn={monsterSpawns.firstSpawn}
               isMobile={isMobile}
               authoritative={isHost}
               networkState={sharedMonsters[0]}
@@ -1419,7 +1438,7 @@ function BackroomsScene({
               localPlayerId={localPlayerId}
               playerPositionRef={playerPositionRef}
               onCatch={onCaught}
-              initialSpawn={sharedMonsters[1]?.position ?? monsterSpawns.secondSpawn}
+              initialSpawn={monsterSpawns.secondSpawn}
               isMobile={isMobile}
               authoritative={isHost}
               networkState={sharedMonsters[1]}
