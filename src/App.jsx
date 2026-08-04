@@ -10,7 +10,7 @@ const PLAYER_PADDING = 0.95
 const PLAYER_RADIUS = 0.28
 const PLAYER_GRAVITY = 16
 const PLAYER_JUMP_VELOCITY = 5.15
-const PLAYER_MAX_STEP_HEIGHT = 0.9
+const PLAYER_MAX_STEP_HEIGHT = 1.12
 const MOBILE_BREAKPOINT = 900
 const MOBILE_LOOK_SENSITIVITY = 0.0032
 const BACKGROUND_MUSIC_URL = new URL('../musica.mp3', import.meta.url).href
@@ -34,6 +34,7 @@ const MONSTER_SYNC_INTERVAL_MS = 55
 const PORTAL_TRAVERSE_COOLDOWN_S = 0.42
 const NAVIGATION_HEIGHT = 1
 const NAVIGATION_PROBE_OFFSET = 0.68
+const NAVIGATION_SIDE_PROBE_HEIGHT = PLAYER_MAX_STEP_HEIGHT + 0.12
 const MULTIPLAYER_API_URL =
   `${import.meta.env.VITE_API_URL ?? ''}`.trim() || 'https://gamebackroomsapi.onrender.com'
 const preparedRoomCache = new Map()
@@ -332,7 +333,10 @@ function buildNavigationData({ scene, offset, bounds, size, coarse = false }) {
       const floorY = floorHit.point.y
       const origin = new THREE.Vector3(
         x,
-        Math.max(floorY + NAVIGATION_PROBE_OFFSET, NAVIGATION_HEIGHT),
+        Math.max(
+          floorY + Math.max(NAVIGATION_PROBE_OFFSET, NAVIGATION_SIDE_PROBE_HEIGHT),
+          NAVIGATION_HEIGHT,
+        ),
         z,
       )
       let minDistance = Infinity
