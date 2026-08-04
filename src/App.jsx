@@ -567,10 +567,17 @@ function findNavigationAnchors({
       candidate.x - preferredSpawn.x,
       candidate.z - preferredSpawn.z,
     )
-    const bestRank = best.score - bestDistance * 3.5
-    const candidateRank = candidate.score - candidateDistance * 3.5
+    const distanceThreshold = navigation.step * 0.4
 
-    return candidateRank > bestRank ? candidate : best
+    if (candidateDistance + distanceThreshold < bestDistance) {
+      return candidate
+    }
+
+    if (bestDistance + distanceThreshold < candidateDistance) {
+      return best
+    }
+
+    return candidate.score > best.score ? candidate : best
   }, candidates[0])
 
   const minimumMonsterDistance = Math.max(Math.min(size.x, size.z) * 0.22, 6)
