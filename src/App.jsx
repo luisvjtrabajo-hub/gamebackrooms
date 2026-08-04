@@ -681,6 +681,7 @@ function MonsterChaser({
   isMobile,
   authoritative,
   networkState,
+  otherMonsterState,
   onStateChange,
   monsterId,
 }) {
@@ -734,7 +735,7 @@ function MonsterChaser({
 
     const current = monsterPositionRef.current
     const localPlayer = playerPositionRef.current
-    const desiredStep = Math.min(delta * (isMobile ? 2.1 : 1.95), isMobile ? 0.075 : 0.06)
+    const desiredStep = Math.min(delta * (isMobile ? 1.65 : 1.5), isMobile ? 0.058 : 0.045)
     const localDistanceToPlayer = Math.hypot(localPlayer.x - current.x, localPlayer.z - current.z)
 
     if (localDistanceToPlayer < 1.15) {
@@ -768,8 +769,26 @@ function MonsterChaser({
       const distanceToTarget = Math.hypot(dx, dz)
 
       if (distanceToTarget > 0.001) {
-        const dirX = dx / distanceToTarget
-        const dirZ = dz / distanceToTarget
+        let dirX = dx / distanceToTarget
+        let dirZ = dz / distanceToTarget
+
+        if (otherMonsterState?.position) {
+          const otherDx = current.x - otherMonsterState.position.x
+          const otherDz = current.z - otherMonsterState.position.z
+          const otherDistance = Math.hypot(otherDx, otherDz)
+          const minSeparation = 2.4
+
+          if (otherDistance < minSeparation && otherDistance > 0.001) {
+            const repelStrength = (minSeparation - otherDistance) / minSeparation
+            dirX += (otherDx / otherDistance) * repelStrength * 1.35
+            dirZ += (otherDz / otherDistance) * repelStrength * 1.35
+            const dirLength = Math.hypot(dirX, dirZ)
+            if (dirLength > 0.001) {
+              dirX /= dirLength
+              dirZ /= dirLength
+            }
+          }
+        }
 
         const targetX = THREE.MathUtils.clamp(
           current.x + dirX * desiredStep,
@@ -833,8 +852,16 @@ function MonsterChaser({
       <primitive object={monsterInstance} position={monsterScale.offset} scale={monsterScale.scale} />
       <pointLight
         color="#fff0c2"
-        intensity={isMobile ? 1.2 : 1.8}
-        distance={isMobile ? 6.2 : 8.4}
+        intensity={
+          assetUrl === SECOND_MONSTER_ASSET_URL
+            ? isMobile
+              ? 1.55
+              : 2.3
+            : isMobile
+              ? 1.2
+              : 1.8
+        }
+        distance={assetUrl === SECOND_MONSTER_ASSET_URL ? (isMobile ? 7.2 : 9.8) : isMobile ? 6.2 : 8.4}
         decay={2}
         position={[0, 1.25, 0]}
       />
@@ -1363,6 +1390,7 @@ function BackroomsScene({
               isMobile={isMobile}
               authoritative={isHost}
               networkState={sharedMonsters[0]}
+              otherMonsterState={sharedMonsters[1]}
               onStateChange={handleMonsterStateChange}
               monsterId="monster-1"
             />
@@ -1380,6 +1408,7 @@ function BackroomsScene({
               isMobile={isMobile}
               authoritative={isHost}
               networkState={sharedMonsters[1]}
+              otherMonsterState={sharedMonsters[0]}
               onStateChange={handleMonsterStateChange}
               monsterId="monster-2"
             />
