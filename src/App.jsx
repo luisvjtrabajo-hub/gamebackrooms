@@ -1648,6 +1648,19 @@ function useMultiplayerRoom({ phase, roomKey, runId, localPlayerState }) {
       setConnectionError(message ?? 'No se pudo conectar a la sala.')
     }
 
+    const handleMonstersState = (nextMonsterState) => {
+      setRoom((currentRoom) => {
+        if (!currentRoom) {
+          return currentRoom
+        }
+
+        return {
+          ...currentRoom,
+          monsterState: nextMonsterState,
+        }
+      })
+    }
+
     const handleDisconnect = () => {
       setConnectionStatus('disconnected')
     }
@@ -1664,6 +1677,7 @@ function useMultiplayerRoom({ phase, roomKey, runId, localPlayerState }) {
     socket.on('player:updated', handlePlayerUpdated)
     socket.on('player:joined', handlePlayerJoined)
     socket.on('player:left', handlePlayerLeft)
+    socket.on('monsters:state', handleMonstersState)
     socket.on('room:error', handleRoomError)
     socket.on('disconnect', handleDisconnect)
     socket.on('connect_error', handleConnectError)
@@ -1677,6 +1691,7 @@ function useMultiplayerRoom({ phase, roomKey, runId, localPlayerState }) {
       socket.off('player:updated', handlePlayerUpdated)
       socket.off('player:joined', handlePlayerJoined)
       socket.off('player:left', handlePlayerLeft)
+      socket.off('monsters:state', handleMonstersState)
       socket.off('room:error', handleRoomError)
       socket.off('disconnect', handleDisconnect)
       socket.off('connect_error', handleConnectError)
@@ -1772,6 +1787,15 @@ function useMultiplayerRoom({ phase, roomKey, runId, localPlayerState }) {
       )
     })
 
+  const updateMonsters = (nextMonsterState) => {
+    const socket = socketRef.current
+    if (!socket || connectionStatus !== 'connected' || !localPlayerId || room?.hostPlayerId !== localPlayerId) {
+      return
+    }
+
+    socket.emit('monsters:update', nextMonsterState)
+  }
+
   return {
     room,
     availableRooms,
@@ -1783,6 +1807,7 @@ function useMultiplayerRoom({ phase, roomKey, runId, localPlayerState }) {
     setRequestedRoomCode,
     createRoom,
     joinRoom,
+    updateMonsters,
   }
 }
 
@@ -1860,6 +1885,7 @@ export default function App() {
     setRequestedRoomCode,
     createRoom,
     joinRoom,
+    updateMonsters,
   } = useMultiplayerRoom({ phase, roomKey, runId, localPlayerState })
   const roomPlayers = useMemo(() => {
     const players = room?.players ?? []
@@ -1918,6 +1944,9 @@ export default function App() {
           mobileControlsRef={mobileControlsRef}
           players={roomPlayers}
           localPlayerId={localPlayerId}
+          isHost={room?.hostPlayerId === localPlayerId}
+          monsterState={room?.monsterState}
+          onMonsterStateChange={updateMonsters}
           onBoundsChange={setRoomBounds}
           onPlayerStateChange={setLocalPlayerState}
           onCaught={() => setPhase('lost')}
