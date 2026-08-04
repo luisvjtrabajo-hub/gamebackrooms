@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, useFrame, useGraph, useThree } from '@react-three/fiber'
 import { Clone, PointerLockControls, useGLTF } from '@react-three/drei'
 import { io } from 'socket.io-client'
@@ -28,6 +28,7 @@ const PLAYER_SKIN_ASSET_URL = new URL(
 const PLAYER_SKIN_BASE_SCALE = 0.1
 const PLAYER_SKIN_WORLD_SCALE = 0.1
 const MONSTER_SYNC_INTERVAL_MS = 55
+const PORTAL_TRAVERSE_COOLDOWN_S = 0.42
 const NAVIGATION_HEIGHT = 1
 const MULTIPLAYER_API_URL =
   `${import.meta.env.VITE_API_URL ?? ''}`.trim() || 'https://gamebackroomsapi.onrender.com'
@@ -676,6 +677,7 @@ function MonsterChaser({
   active,
   assetUrl,
   roomData,
+  roomKey,
   players,
   localPlayerId,
   playerPositionRef,
@@ -775,7 +777,7 @@ function MonsterChaser({
         (players ?? []).filter(
           (player) =>
             player?.position &&
-            player.roomKey === 'main' &&
+            player.roomKey === roomKey &&
             (player.phase === 'playing' || player.id === localPlayerId),
         ) ?? []
 
@@ -1233,9 +1235,9 @@ function BackroomsScene({
           preferredPortal: {
             xRatio: 0.82,
             zRatio: 0.08,
-            halfWidth: 0.95,
-            halfDepth: 1.25,
-            rotationY: -Math.PI / 2,
+            halfWidth: 1.1,
+            halfDepth: 1.35,
+            rotationY: 0,
             width: 1.55,
             height: 2.95,
           },
@@ -1258,9 +1260,9 @@ function BackroomsScene({
           preferredPortal: {
             xRatio: -0.82,
             zRatio: 0.08,
-            halfWidth: 0.95,
-            halfDepth: 1.3,
-            rotationY: Math.PI / 2,
+            halfWidth: 1.1,
+            halfDepth: 1.35,
+            rotationY: Math.PI,
             width: 1.55,
             height: 2.95,
           },
@@ -1364,7 +1366,10 @@ function BackroomsScene({
       return
     }
 
-    if (portalArmedRef.current && clock.getElapsedTime() - lastTraverseRef.current > 1.35) {
+    if (
+      portalArmedRef.current &&
+      clock.getElapsedTime() - lastTraverseRef.current > PORTAL_TRAVERSE_COOLDOWN_S
+    ) {
       portalArmedRef.current = false
       lastTraverseRef.current = clock.getElapsedTime()
       onTraverse(roomPreset.nextRoom)
@@ -1450,6 +1455,7 @@ function BackroomsScene({
               active={active}
               assetUrl={MONSTER_ASSET_URL}
               roomData={roomData}
+              roomKey={roomKey}
               players={players}
               localPlayerId={localPlayerId}
               playerPositionRef={playerPositionRef}
@@ -1468,6 +1474,7 @@ function BackroomsScene({
               active={active}
               assetUrl={secondMonsterAssetUrl}
               roomData={roomData}
+              roomKey={roomKey}
               players={players}
               localPlayerId={localPlayerId}
               playerPositionRef={playerPositionRef}
@@ -1669,6 +1676,41 @@ function useMultiplayerRoom({ phase, roomKey, runId, localPlayerState }) {
   const socketRef = useRef(null)
   const playerNameRef = useRef(`Jugador ${Math.floor(100 + Math.random() * 900)}`)
 
+  const syncPlayerState = useCallback(
+    (overrideState = {}) => {
+      const socket = socketRef.current
+      if (!socket || connectionStatus !== 'connected') {
+        return false
+      }
+
+      const nextState = {
+        phase,
+        roomKey,
+        position: localPlayerState.position,
+        rotation: localPlayerState.rotation,
+        ...overrideState,
+      }
+
+      socket.emit('player:update', nextState)
+
+      setRoom((currentRoom) => {
+        if (!currentRoom || !localPlayerId) {
+          return currentRoom
+        }
+
+        return {
+          ...currentRoom,
+          players: currentRoom.players.map((player) =>
+            player.id === localPlayerId ? { ...player, ...nextState } : player,
+          ),
+        }
+      })
+
+      return true
+    },
+    [connectionStatus, localPlayerId, localPlayerState.position, localPlayerState.rotation, phase, roomKey],
+  )
+
   useEffect(() => {
     if (typeof window === 'undefined' || !MULTIPLAYER_API_URL) {
       return undefined
@@ -1801,18 +1843,8 @@ function useMultiplayerRoom({ phase, roomKey, runId, localPlayerState }) {
   }, [])
 
   useEffect(() => {
-    const socket = socketRef.current
-    if (!socket || connectionStatus !== 'connected') {
-      return
-    }
-
-    socket.emit('player:update', {
-      phase,
-      roomKey,
-      position: localPlayerState.position,
-      rotation: localPlayerState.rotation,
-    })
-  }, [connectionStatus, localPlayerState.position, localPlayerState.rotation, phase, roomKey])
+    syncPlayerState()
+  }, [syncPlayerState])
 
   useEffect(() => {
     const socket = socketRef.current
@@ -1908,6 +1940,7 @@ function useMultiplayerRoom({ phase, roomKey, runId, localPlayerState }) {
     createRoom,
     joinRoom,
     updateMonsters,
+    syncPlayerState,
   }
 }
 
@@ -1986,6 +2019,7 @@ export default function App() {
     createRoom,
     joinRoom,
     updateMonsters,
+    syncPlayerState,
   } = useMultiplayerRoom({ phase, roomKey, runId, localPlayerState })
   const roomPlayers = useMemo(() => {
     const players = room?.players ?? []
@@ -2051,8 +2085,8 @@ export default function App() {
           onPlayerStateChange={setLocalPlayerState}
           onCaught={() => setPhase('lost')}
           onTraverse={(nextRoom) => {
+            syncPlayerState({ roomKey: nextRoom })
             setRoomKey(nextRoom)
-            setRunId((value) => value + 1)
           }}
         />
       </Canvas>
