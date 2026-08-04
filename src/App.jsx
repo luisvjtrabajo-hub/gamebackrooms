@@ -6,7 +6,7 @@ import * as THREE from 'three'
 import { clone as cloneSkeleton } from 'three/examples/jsm/utils/SkeletonUtils.js'
 
 const PLAYER_HEIGHT = 1.65
-const PLAYER_PADDING = 1.8
+const PLAYER_PADDING = 0.95
 const PLAYER_RADIUS = 0.28
 const MOBILE_BREAKPOINT = 900
 const MOBILE_LOOK_SENSITIVITY = 0.0032
@@ -263,9 +263,9 @@ function buildNavigationData({ scene, offset, bounds, size, coarse = false }) {
     new THREE.Vector3(-1, 0, -1).normalize(),
   ]
   const step = coarse
-    ? THREE.MathUtils.clamp(Math.min(size.x, size.z) / 24, 0.72, 0.9)
-    : THREE.MathUtils.clamp(Math.min(size.x, size.z) / 34, 0.52, 0.68)
-  const maxProbeDistance = THREE.MathUtils.clamp(step * (coarse ? 3.7 : 4.2), 2.2, 4.2)
+    ? THREE.MathUtils.clamp(Math.min(size.x, size.z) / 38, 0.42, 0.58)
+    : THREE.MathUtils.clamp(Math.min(size.x, size.z) / 44, 0.34, 0.5)
+  const maxProbeDistance = THREE.MathUtils.clamp(step * (coarse ? 4.1 : 4.6), 2, 3.6)
   const columns = Math.floor((bounds.maxX - bounds.minX) / step) + 1
   const rows = Math.floor((bounds.maxZ - bounds.minZ) / step) + 1
   const walkable = new Uint8Array(columns * rows)
@@ -301,7 +301,7 @@ function buildNavigationData({ scene, offset, bounds, size, coarse = false }) {
         score += distance
       }
 
-      if (minDistance < PLAYER_RADIUS + (coarse ? 0.22 : 0.16)) {
+      if (minDistance < PLAYER_RADIUS + (coarse ? 0.1 : 0.07)) {
         blocked = true
       }
 
@@ -325,7 +325,7 @@ function buildNavigationData({ scene, offset, bounds, size, coarse = false }) {
 }
 
 function isWalkablePosition(navigation, x, z, radius = PLAYER_RADIUS) {
-  const sampleRadius = radius * 0.68
+  const sampleRadius = radius * 0.52
   const sampleOffsets = [
     [0, 0],
     [sampleRadius, 0],
@@ -1162,11 +1162,17 @@ function PlayerController({
     let resolvedX = playerPositionRef.current.x
     let resolvedZ = playerPositionRef.current.z
 
-    if (isWalkablePosition(roomData.navigation, clampedX, resolvedZ)) {
+    if (
+      isWalkablePosition(roomData.navigation, clampedX, resolvedZ) ||
+      isWalkablePosition(roomData.navigation, clampedX, resolvedZ, PLAYER_RADIUS * 0.82)
+    ) {
       resolvedX = clampedX
     }
 
-    if (isWalkablePosition(roomData.navigation, resolvedX, clampedZ)) {
+    if (
+      isWalkablePosition(roomData.navigation, resolvedX, clampedZ) ||
+      isWalkablePosition(roomData.navigation, resolvedX, clampedZ, PLAYER_RADIUS * 0.82)
+    ) {
       resolvedZ = clampedZ
     }
 
