@@ -1410,9 +1410,9 @@ function BackroomsScene({
         }
       : {
           assetUrl: SECOND_ROOM_ASSET_URL,
-          preferredSpawn: { xRatio: 0.18, zRatio: -0.22 },
-          preferredMonsterSpawn: { xRatio: 0.22, zRatio: -0.18 },
-          preferredLookTarget: { xRatio: 0.08, zRatio: 0.02 },
+          preferredSpawn: { xRatio: 0.42, zRatio: 0.22 },
+          preferredMonsterSpawn: { xRatio: -0.18, zRatio: -0.12 },
+          preferredLookTarget: { xRatio: 0.08, zRatio: -0.04 },
           preferredPortal: {
             xRatio: -0.82,
             zRatio: 0.08,
